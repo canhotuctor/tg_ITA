@@ -48,7 +48,7 @@
 %   \documentclass[dsc, eng]{ita}
 %		\documentclass[dsc, eng, dv]{ita}
 %++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-\documentclass[dsc]{ita}    % ITA.cls based on standard book.cls
+\documentclass[tg, eng]{ita}    % ITA.cls based on standard book.cls
 % Quando alterar a classe, por exemplo de [msc] para [msc, eng]) rode mais uma vez o botão BUILD OUTPUT caso haja erro
 \usepackage{ae}
 \usepackage{graphicx}
@@ -77,7 +77,11 @@
 %\usepackage{subfigmat}
 %PACOTEFIGURAS_SE _ERRADO_ESXCLUIR_ACIMA
 \usepackage{booktabs}
+\usepackage{threeparttable}
 %PACOTETABELAS_SE _ERRADO_ESXCLUIR_ACIMA
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,shapes,positioning}
+\usepackage{tkz-euclide}
 %HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH
 
 %++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -93,24 +97,28 @@
 % Identificacoes (se o trabalho for em inglês, insira os dados em inglês)
 % Para entradas abreviadas de Professora (Profa.) em português escreva: Prof$^\textnormal{a}$.
 %++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-\course{Engenheria da Computação}  % Programa de PG ou Curso de Graduação
-\area{Aircraft Design} % Área de concentração na PG (Não utilizado no caso de TG)
+\course{Electronic Engineering}  % Programa de PG ou Curso de Graduacao
+\area{} % Área de concentração na PG (Não utilizado no caso de TG)
 
 % Autor do trabalho: Nome Sobrenome
-\authorgender{fem}                     %sexo: masc ou fem
-\author{Maria das Graças}{Silva}
-\itaauthoraddress{Rua H8X, Ap. XXX}{12.228-46?}{São José dos Campos--SP}
+\authorgender{masc}                     %sexo: masc ou fem
+\author{Mario Célio}{da Silva Bezerra}
+\itaauthoraddress{Rua H8B, Ap. 241}{12.228-461}{São José dos Campos--SP}
 
 % Titulo da Tese/Dissertação
-\title{Uma Abordagem Sobre o Dilema do Cupim Frente ao Concreto Armado Utilizando Diferentes Composições Cimentísticas}
+\title{
+% \color{red}
+A High-Throughput GPU Simulator and Multi-Agent Reinforcement Learning Framework for 3v3 IEEE Very Small Size Soccer
+}
+
 
 % Orientador
 \advisorgender{masc}                    % masc ou fem
-\advisor{Prof.~Dr.}{Adalberto Santos Dupont}{ITA}
+\advisor{Prof.~Dr.}{Marcos Máximo}{ITA}
 
 % Coorientador (Caso não haja coorientador, colocar ambas as variáveis \coadvisorgender e \coadvisor comentadas, com um % na frente)
-\coadvisorgender{fem}									% masc ou fem
-\coadvisor{Prof$^\textnormal{a}$.~Dr$^\textnormal{a}$.}{Doralice Serra}{OVNI}
+% \coadvisorgender{fem}									% masc ou fem
+% \coadvisor{Prof$^\textnormal{a}$.~Dr$^\textnormal{a}$.}{Doralice Serra}{OVNI}
 
 % TODO: remove Pro-rector entry or just leave it optional and off by default?
 % Pró-reitor da Pós-graduação
@@ -119,27 +127,28 @@
 
 %Coordenador do curso no caso de TG
 \bosscoursegender{masc}									% masc ou fem
-\bosscourse{Prof.~Dr.}{John Walker}
+\bosscourse{Prof.~Dr.}{Marcelo Pinho}
 
 % Palavras-Chaves informadas pela Biblioteca -> utilizada na CIP
-\kwcip{Cupim}
-\kwcip{Dilema}
-\kwcip{Construção}
+\kwcip{Reinforcement Learning}
+\kwcip{Multi-Agent Systems}
+\kwcip{VSSS}
+\kwcip{GPU Simulation}
 
 % membros da banca examinadora
 
-\examiner{Prof. Dr.}{Alan Turing}{Presidente}{ITA}
-\examiner{Prof. Dr.}{Linus Torwald}{}{UXXX}
-\examiner{Prof. Dr.}{Richard Stallman}{}{UYYY}
-\examiner{Prof. Dr.}{Donald Duck}{}{DYSNEY}
-\examiner{Prof. Dr.}{Mickey Mouse}{}{DISNEY}
+\examiner{Prof. Dr.}{Marcos Máximo}{Advisor}{ITA}
+\examiner{Prof. Dr.}{José Roberto Colombo}{Electronic Engineering Department}{ITA}
+\examiner{Master's Student}{Kenji Yamane}{T23}{ITA}
+% \examiner{Prof. Dr.}{Examiner Name}{}{Institution}
 
 % Data da defesa (mês em maiúsculo, se trabalho em inglês, e minúsculo se trabalho em português)
-\date{26}{janeiro}{2026}
+\date{29}{May}{2026}
 
 % Número CDU - (somente para TG)
-\cdu{???.??}
-
+\color{red}
+\cdu{???.???}
+\color{black}
 % Glossario
 \makenoidxglossaries % to use glossaries pkg
 \frontmatter
@@ -154,31 +163,36 @@
 \mainmatter
 % Os capitulos comecam aqui
 
-\chapter{Introdução}
+\chapter{Introduction}
 \input{Cap1/cap1}
 
-\chapter{Modelagem Dinâmica de Cupins Cibernéticos}
+\chapter{IEEE Very Small Size Soccer}
 \input{Cap2/cap2}
 
-\chapter{Controle Robusto de Concretos Caóticos}
+\chapter{Machine Learning}
 \input{Cap3/cap3}
 
-\chapter{Conclusão}
+\chapter{Methodology}
 \input{Cap4/cap4}
+
+\chapter{Preliminary Results}
+\input{Cap5/cap5}
+
+\chapter{Conclusion}
+\input{Cap6/cap6}
 
 % REFERENCIAS BIBLIOGRAFICAS
 \renewcommand\bibname{\itareferencesnamebabel} %renomear título do capítulo referências
 \printbibliography
 
-% Apendices
+% Apendices e anexos podem ser habilitados quando houver material complementar.
 \appendix
-\chapter{Tópicos de Dilema Linear} %opcional
+\chapter{Supplementary Material}
 \input{ApeA/apendiceA}
-
-% Anexos
-\annex
-\chapter{Exemplo de um Primeiro Anexo} %opcional
-\input{AneA/anexoA}
+%
+% \annex
+% \chapter{External Material}
+% \input{AneA/anexoA}
 
 % Glossario
 %\itaglossary
@@ -186,16 +200,16 @@
 
 % Folha de Registro do Documento
 % Valores dos campos do formulario
-\FRDitadata{26 de janeiro de 2026}
+\FRDitadata{29 May 2026}
 \FRDitadocnro{DCTA/ITA/DM-018/2026} %(o número de registro você solicita a biblioteca)
 \FRDitaorgaointerno{Instituto Tecnológico de Aeronáutica -- ITA}
 %Exemplo no caso de pós-graduação: Instituto Tecnol{\'o}gico de Aeron{\'a}utica -- ITA
-\FRDitapalavrasautor{Cupim; Cimento; Estruturas}
-\FRDitapalavrasresult{Cupim; Dilema; Construção}
+\FRDitapalavrasautor{Reinforcement learning; Multi-agent systems; Very Small Size Soccer; GPU simulation}
+\FRDitapalavrasresult{Reinforcement learning; Multi-agent systems; Robotics; Simulation}
 %Exemplo no caso de graduação (TG):
 %\FRDitapalavraapresentacao{Trabalho de Graduação, ITA, São José dos Campos, 2026. \NumPenultimaPagina\ páginas.}
 %Exemplo no caso de pós-graduação (msc, dsc):
-\FRDitapalavraapresentacao{ITA, São José dos Campos. Curso de Mestrado. Programa de Pós-Graduação em Engenharia Aeronáutica e Mecânica. Área de Sistemas Aeroespaciais e Mecatrônica. Orientador: Prof.~Dr. Adalberto Santos Dupont. Coorientadora: Prof$^\textnormal{a}$.~Dr$^\textnormal{a}$. Doralice Serra. Defesa em 05/03/2026. Publicada em 26/01/2026.}
+\FRDitapalavraapresentacao{Bachelor's Thesis, ITA, São José dos Campos, 2026. Advisor: Prof.~Dr. Marcos Máximo.}
 \FRDitaresumo{\input{PreTextuais/resumo}}
 %  Primeiro Parametro: Nacional ou Internacional -- N/I
 %  Segundo parametro: Ostensivo, Reservado, Confidencial ou Secreto -- O/R/C/S

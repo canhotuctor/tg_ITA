@@ -1,0 +1,27 @@
+\section{Summary}
+
+This TG-1 report delivers the contributions stated in
+Section~\ref{sec:contributions}: an accelerated simulator and a centralized
+joint-policy training baseline for 3v3 IEEE Very Small Size Soccer.  The
+throughput measurements show that the batched JAX design substantially exceeds
+the conventional CPU-based, socket-mediated architecture, while the training
+runs confirm that the simulator can support an end-to-end \gls{ppo} loop rather
+than only fast isolated stepping.
+
+The training results also clarify the next methodological step.  Kickoff
+initialization produces reliable learning, whereas uniform random
+initialization fails to provide enough useful signal.  This contrast motivates
+the prioritized-level-replay sampler as the TG-2 mechanism for choosing
+informative initial situations.
+
+\section{Roadmap to TG-2}
+
+The concrete TG-2 experiments are detailed in
+Section~\ref{sec:future_planned_results}: closing the end-to-end throughput gap
+with a JAX-native learner, evaluating the
+prioritized-level-replay sampler, extending the curriculum to self-play,
+measuring symmetry-aware improvements, and comparing the learned team against
+the ITAndroids classical strategy stack.  Together, these experiments will
+determine whether the simulator and training infrastructure built in TG-1 can
+produce a robust, competitive 3v3 \gls{vsss} team policy and define the next
+steps toward eventual deployment.

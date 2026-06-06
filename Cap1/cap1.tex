@@ -1,87 +1,387 @@
-\section{Objetivo}
-O objetivo deste projeto de mestrado é desenvolver técnicas de controle subótimo das juntas passivas (não atuadas) de um robô subatuado, incluindo o estudo teórico do tema, proposição de um método de controle e sua verificação
-experimental em um manipulador de três graus de liberdade \cite{Nascimento1970}.
+% ============================================================
+%  CHAPTER 1 — INTRODUCTION
+% ============================================================
 
-O teste \cite{Patagonios2001} e validação das técnicas de controle propostas foram realizados em um ambiente de simulação e no manipulador
-experimental, adquirido através do projeto FAPESP $N^{\circ}$ 98/00649-5, que se encontra em funcionamento no \gls{lasi} do Departamento de Engenharia Elétrica da USP em São Carlos. De acordo com \textcite{Furmento1995}, pode-se listar:
-\begin{itemize}
-\item Isso;
-\item Aquilo; e
-\item Aquele outro.
-\end{itemize}
+In this chapter, we present the motivation for the work, the contextualization
+of the problem, the main and secondary objectives, a brief literature review,
+and the contributions of this TG-1, before giving an outline of the remaining
+chapters.
 
-Então, no \gls{lasi} são realizadas as várias atividades listadas.
+% ------------------------------------------------------------------
+\section{Motivation}
 
-\section{Motivação}
-Manipuladores mecânicos \cite{Sbornian2002} vêm sendo utilizados há várias décadas para a automação de tarefas
-repetitivas em ambientes industriais, ambientes estes de fácil acesso tanto em termos físicos quanto em termos de baixo
-risco à saúde humana. Nos últimos anos, verifica-se uma utilização cada vez maior de manipuladores em
-ambientes de difícil acesso ou inóspitos, como no interior de usinas nucleares, no fundo dos oceanos e no
-espaço. A localização dos manipuladores nesta nova gama de aplicações faz com que sua manutenção,após uma falha mecânica ou elétrica, seja custosa e demorada, portanto estes mecanismos requerem sofisticadas
-metodologias de controle tolerante a falhas \cite{ITALUS2004}.
+Few engineering artifacts are asked to do as much at once as an autonomous
+robot.  To act well, it must turn a stream of noisy, partial measurements into
+a coherent picture of its surroundings, anticipate how that picture will change,
+and commit to an action before the world has finished moving.  This loop runs
+continuously, under uncertainty, and with consequences that are immediate and
+physical.  The same demand appears whether the robot is sorting parts on a
+factory line, inspecting a pipeline on the seabed, or driving across another
+planet: perceive a complex, changing world and decide what to do next.
 
-Após a ocorrência de uma falha em um de seus atuadores, o manipulador torna-se um sistema subatuado. Um sistema também pode se tornar subatuado quando é projetado  dessa maneira, ou quando o operador deliberadamente mantém um ou mais atuadores disponíveis inoperantes durante uma tarefa. Reduzindo o número de atuadores sem reduzir o número de graus de
-liberdade e ajustando-se o sistema de controle adequado, pode-se obter um mecanismo cujo consumo de energia é menor, mas cujas propriedades são mantidas \cite{Arystides1994}.
+\color{red}
+figura 1: some robotics examples
+\color{black}
+
+For decades, the dominant answer to that demand was to anticipate the world on
+the engineer's behalf.  Behavior was spelled out in advance as rules, state
+machines, and tuned heuristics, each branch encoding a designer's expectation
+of what the robot would face.  Inside a tightly controlled setting this strategy
+is hard to beat.  It degrades quickly, however, as the number of situations
+grows: every new contingency must be foreseen and written down by hand, the
+resulting logic becomes difficult to maintain, and little of the effort carries
+over when the task or the environment changes.
+
+A different answer matured over the past decade.  Instead of prescribing
+behavior, \gls{drl} lets an agent uncover it, by repeatedly acting in an
+environment and adjusting toward whatever earns reward.  What makes the approach
+compelling is less any single result than the steadily widening class of
+problems it can absorb --- and the way those problems can be ordered by how
+closely they resemble the physical world a robot inhabits.
+
+At the structured extreme sit fully observable, turn-based games with discrete
+moves.  Go is the canonical example: a player sees the entire board, acts only
+on their turn, and chooses among a finite set of legal moves, yet the game hides
+on the order of $10^{170}$ positions behind those simple rules.  In 2016
+AlphaGo became the first program to defeat a professional human
+player~\cite{silver2016mastering}, and its successor AlphaGo Zero reached the
+same standard learning purely from self-play, without a single human game as a
+reference~\cite{silver2017mastering}.
+
+%% FIGURE SUGGESTION 1: AlphaGo — the Lee Sedol match photograph (2016).
+%% Widely available under press license from DeepMind; cite the original source.
+
+Relaxing those assumptions one at a time brings the setting closer to robotics.
+Let many agents act simultaneously, in continuous time, while hiding part of the
+state from each of them, and the difficulty changes in kind rather than degree.
+AlphaStar reached this regime in StarCraft~II, where an agent must interleave
+long-horizon economic planning with split-second control over individual units,
+select among roughly $10^{26}$ actions at every step, and do so without ever
+observing the full board~\cite{starcraft_marl}.  Tellingly, its robustness did
+not come from optimizing against a single adversary but from training inside a
+\emph{league} of continually evolving rivals, so that no one exploitable
+strategy could survive.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.8\textwidth]{Cap1/starcraft2.png}
+    \caption{A picture of the StarCraft 2 game. Its possible to see a clash between units of Zerg and Terran factions. Credit: Blizzard Entertainment (\url{https://blizzard.com/}).}
+    \label{fig:starcraft_2_game}
+\end{figure}
+
+What every one of these results leaves untouched, however, is the body.  A
+simulated agent issues an action and the action simply happens; a physical one
+must produce torques that move mass, manage balance and contact, and recover
+when the world reacts in ways no rule foresaw.  This last frontier --- continuous
+sensorimotor control on real hardware --- is where progress is now most striking.
+Fittingly for a World Cup year, Boston Dynamics has recently demonstrated its
+Atlas humanoid performing soccer skills that demand exactly this kind of
+dynamic, whole-body coordination on real hardware.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.8\textwidth]{Cap1/atlas_rabona.png}
+    \caption{Picture of a pre-World Cup 2026 marketing stunt for the Boston Dynamics Atlas robot.
+    The robot can be seen doing a "Rabona", also known as "chute de letra" in Portuguese.
+    Credit: Hyundai and Boston Dynamics (\url{https://bostondynamics.com/atlas}).}
+    \label{fig:atlas_rabona}
+\end{figure}
+
+Robot soccer occupies a particularly attractive position in this landscape.
+It draws together, in one compact and well-defined domain, the threads pulled
+apart above: continuous control, real-time decision-making, multi-agent
+cooperation, and adversarial competition.  It is cheap enough to simulate at
+scale, yet the underlying decision problem remains genuinely hard --- which is
+precisely what makes it a demanding benchmark for techniques whose ultimate
+target is the physical world.
+
+% ------------------------------------------------------------------
+\section{Contextualization}
+% ------------------------------------------------------------------
+
+In the context of Robot Soccer, various robotics leagues and competitions have surged in the last decades.
+One of the popular leagues in Brazil is the IEEE \gls{vsss}, categoryin which two teams of
+differential-drive robots play on a flat field.  A camera mounted above the
+field estimates the positions of all robots and the ball; an off-board computer
+processes these estimates and sends wheel-speed commands to each robot via
+radio.  In the 3v3 format considered here, each team has three homogeneous
+robots and no kicking mechanism, so effective team behavior must arise from
+ball conduction, positioning, and coordinated movement. Figure~\ref{fig:vsss_game_diagram} shows the IEEE VSSS game setup.
 
 \begin{figure}[ht]
-\centering
-\includegraphics[width=0.5\textwidth]{Cap1/cupim}
-\caption{Proibido estacionar cupins. Legenda grande, com o objetivo de demonstrar a indentação na lista de figuras.}
-\label{cupim}
+    \centering
+    \includegraphics[width=0.82\linewidth]{Cap1/vsss_game.png}
+    \caption{IEEE VSSS game set. Credit:~\parencite{ieee_vsss_rules}.}
+    \label{fig:vsss_game_diagram}
 \end{figure}
 
-Controle do manipulador após uma falha é fundamental do ponto de vista de operação, principalmente nos casos descritos acima, em que a localização do manipulador impede sua manutenção de forma fácil. Recentemente tem havido a combinação
-de algorítmos de detecção e isolação de falhas com os de controle pós-falha em um método unificado. Uma extensão desse trabalho, que vê o problema de controle tolerante a falhas através de uma perspectiva integrada, foi proposta por
-{marcel4}. Os autores apresentam um ambiente híbrido consistindo de três unidades básicas que garantem a compleição de tarefas na presença de qualquer número de juntas falhas (Fig.~\ref{cupim}). A primeira unidade é um esquema de detecção
-e isolação de falhas que continuamente monitora o manipulador para detectar e identificar possíveis falhas nas juntas. A segunda unidade é responsável pela reconfiguração do controle. A terceira unidade é composta de algorítmos de
-controle apropriados para cada tipo de configuração do robô, baseado na informação da unidade de reconfiguração \cite{COFFEE2000}.
+The ITAndroids \gls{vsss} team currently relies on a classical robotics stack
+for strategy, path planning, and low-level control — a hierarchy of carefully
+hand-crafted rules and heuristics that govern how each robot navigates the
+field and responds to game events.  This stack performs well in practice but
+has fundamental limitations.  Rule-based strategies are designed for a finite
+set of anticipated situations and do not automatically improve with more
+data or competition experience.  Adapting them to a new opponent or a changed
+team composition requires manual re-engineering.
 
-No presente trabalho nos concentramos na unidade de algorítmo de controle, e mais especificamente no problema de controle da posição  angular de uma junta falha para qualquer posição desejada de uma maneira subótima, quando dispomos
-de redundância de atuação para a realização dessa tarefa. O termo subótimo se deve ao fato de que não há garantias de otimalidade em vista das não-linearidades inerentes ao sistema e de outros fatores que serão abordados nos capítulos posteriores. Ao longo do texto, para simplificação, usaremos tanto o termo subótimo como ótimo para nos referirmos à metodologia utilizada.
-
-Segundo, o critério de otimização utilizado será o acoplamento entre as juntas do
-manipulador e neste caso, temos um sistema redundante quando ocorre falha de uma das juntas do manipulador de três juntas, e seu posicionamento é controlado pelas duas restantes. Nossa solução para o problema é baseada na formulação
-de redundância local, extensivamente estudada no contexto de cinemática inversa ({nakamura}). A principal contribuição deste trabalho é a extensão deste método usando as equações dinâmicas de manipuladores subatuados e a utilização do índice de acoplamento como um critério para a minimização do torque e da energia gasta pelo sistema durante o controle das juntas falhas.
-
-\begin{figure}[ht!]
-\centering
-\includegraphics[width=1\textwidth]{Cap1/cupimconcreto}
-\caption{Exemplo real de cupim frente ao seu dilema.}
-\label{FDII}
+\begin{figure}[ht]
+    \centering
+    \includegraphics[width=0.75\textwidth]{Cap1/vss.jpeg}
+    \caption{ITAndroids IEEE \gls{vsss} robot and overhead-vision marker.}
+    \label{fig:vss_robots}
 \end{figure}
 
-\section{Organização do trabalho}
-\subsection{Sub-organização}
-O capítulo 1 contém a introdução do trabalho, onde são expostos o objetivo, a motivação do mesmo, a descrição do sistema e a formulação do problema com a nomenclatura utilizada; além de uma revisão bibliográfica da literatura relacionada ao tema do trabalho.
+The potential of learned strategies for this domain has been demonstrated by
+a series of prior works, each addressing a different scope.  Bassani
+et al.\,(2020) developed an open RL framework for \gls{vsss} and showed that
+a trained single-agent policy could match the level of human-designed
+strategies, reaching fourth place at the 2019 Latin American Robotics
+Competition (LARC)~\cite{bassani2020}.  Medeiros et al.\,(2020) applied \gls{ppo}
+with curriculum learning to teach a single robot to intercept the ball in the
+presence of an opponent, outperforming both handcrafted baselines and agents
+trained without the curriculum~\cite{tg_thiago}.  Baldão\,(2021) extended
+this framework to penalty kicks, achieving conversion rates substantially above
+the team's existing kicker~\cite{tg_thay}.  Subsequent work by Baldão
+et al.\,(2023) moved to an adversarial multi-agent setting, studying how
+different opponent-sampling strategies affect the quality of the learned policy
+in penalty-kick scenarios~\cite{master_thay}.  Brandão et al.\,(2022) went
+further, applying \gls{ppo} with self-play to a full 3v3 team, simultaneously
+learning control and strategy, and demonstrating that the resulting policy
+could defeat the best available heuristic opponent with an 84\% win
+rate~\cite{brandao2022}.
 
-\subsubsection{SubSub-organização}
+This thesis is the natural next step in that line of work.  Where Brandão
+et al.\,(2022) showed that 3v3 multi-agent learning is feasible, the
+experiments there were constrained by the cost of collecting enough useful
+experience.  The central question this work addresses is what becomes possible
+when training can both generate more transitions per wall-clock second and make
+better use of the situations it samples.
 
-No capítulo 2 apresentamos a modelagem dinâmica de um manipulador subatuado e o conceito de índice de acoplamento para medir o acoplamento dinâmico entre as juntas ativas e passivas. Este índice é utilizado para a análise e projeto de uma metodologia de controle subótimo do manipulador.
+% ------------------------------------------------------------------
+\section{Objective}
+% ------------------------------------------------------------------
 
-\subsubsection{Outra subsub-organizacao}
+The objective of this work is to reduce one of the main practical barriers that
+still separates reinforcement-learning research in \gls{vsss} from routine use
+inside the ITAndroids development cycle.  The team already has a sequence of
+works showing that learned policies can perform meaningful soccer behaviors,
+from isolated skills to complete 3v3 control.  However, training and evaluating
+these policies remains expensive: each experiment requires a large number of
+simulated interactions, and the existing simulator architecture limits how
+quickly those interactions can be produced.
 
-O capítulo 3 apresenta o controle subótimo de manipuladores através de redundância de atuação. Descreve-se a técnica de controle ponto a ponto de manipuladores subatuados. A seguir mostramos  a linearização destes por realimentação, cujo efeito é linearizar e desacoplar o sistema não linear. Finalmente é proposta uma sequência de controle subótimo local das juntas passivas visando a minimização de certos critérios como torque, velocidade e em particular a energia consumida pelo sistema. Este é de fato o tema principal deste mestrado.
+For this reason, the focus of TG-1 is not yet to claim a final competition-ready
+strategy, but to build the infrastructure on which such a strategy can be
+trained and studied.  This work develops an accelerated \gls{vsss} simulator
+and uses it in an end-to-end \gls{ppo} training loop for a centralized joint
+team policy.  This baseline makes it possible to measure the simulator in the
+actual learning setting and prepares the sample-selection and decentralized
+multi-agent extensions planned for TG-2.
 
-É também apresentado no capítulo 4 um resumo do projeto de controladores  $H_{2}$ e $H_{\infty}$, cuja principal vantagem é a robustez na presença de incertezas paramétricas e distúrbios externos.
+% ------------------------------------------------------------------
+\section{Literature Review}
+% ------------------------------------------------------------------
 
-O capítulo 5 mostra as características e a operação do robô e do ambiente de simulação utilizados nos testes e experimentação da metodologia apresentada \cite{2008Accettura}.
+This section reviews the work most relevant to a learning-based approach to
+3v3 \gls{vsss}.  It proceeds from the broad milestones that established deep
+reinforcement learning as a viable tool for strategic control, through the
+specific body of \gls{vsss} research developed within the ITAndroids team, to
+accelerated simulation and sample efficiency improvements.
 
-Os procedimentos da metodologia e os resultados obtidos para algumas configurações e diferentes controladores encontram-se no capítulo 6.
+\subsection{Deep Reinforcement Learning in Games and Robotics}
 
-No capítulo 7 são apresentadas as conclusões do trabalho.
+The modern interest in deep reinforcement learning for sequential
+decision-making was catalyzed by a sequence of results in games of increasing
+complexity.  AlphaGo defeated a professional Go player by combining
+deep neural networks with Monte Carlo tree search~\cite{silver2016mastering},
+and its successor AlphaGo Zero reached superhuman play through self-play
+alone, learning without any human game data~\cite{silver2017mastering}.  These
+results established two ideas central to this work: that a single learned
+function can encode sophisticated strategy, and that self-play can generate the
+training signal needed to reach it.
 
-Quatro apêndices fazem parte do trabalho. O apêndice A apresenta alguns tópicos de álgebra linear que são a base do método proposto. No apêndice B são mostradas as equações da matriz de inércia e do vetor de torques não-inerciais
-utilizados na modelagem dinâmica do manipulador. No apêndice C temos as expressões literais dessas equações feitas no software MAPLE e no apêndice D alguns programas feitos no software MATLAB utilizados no projeto \cite{Furmento1995, Morgado2003}.
+Subsequent work scaled these ideas to real-time, multi-agent, partially
+observable settings.  OpenAI Five coordinated a team of five agents to defeat
+human champions at the video game Dota~2~\cite{berner2019dota}, and AlphaStar
+reached Grandmaster level in StarCraft~II by training a league of continually
+adapting agents, each representing a distinct strategy, to prevent the policy
+from overfitting to a single style of play~\cite{starcraft_marl}.  The
+league-training idea — that competitive robustness requires facing a diverse
+population of opponents rather than only the latest policy — directly informs
+the self-play design considered in this work.
 
+% todo: remove this reference to haarnoja2024
+The transfer of these methods to physical robots is more recent.
+Haarnoja et al.\,(2024) trained bipedal robots to play soccer on real hardware,
+with agile locomotion and basic teamwork emerging entirely from reinforcement
+learning rather than hand-designed motion.  This
+result is a direct demonstration that learning-based control can produce
+coordinated soccer behavior on physical platforms, which is the eventual aim of
+the line of research this thesis contributes to.
 
-\subsection{Como utilizar o glossário}
-O glossário no \LaTeX é automatico, utilizando o pacote ``glossaries'', então basta adicionar as entradas em ``listaabreviaturas.tex'' e em ``listasimbolos.tex'' e utilizar o comando ``$\backslash$gls\{\}''.
-A lista de abreviaturas e de simbolos será gerada automaticamente de acordo com os elementos que foram utilizados no texto.
+\subsection{Reinforcement Learning in IEEE VSSS}
 
-A primeira vez que uma abreviatura é chamada é automaticamente representada em sua forma completa: \gls{ctq}.
-Ao utilizar o comando depois da primeira vez, apenas a abreviatura será utilizada: \gls{ctq}.
+Within the \gls{vsss} category specifically, a focused body of work — much of it
+produced within the ITAndroids team — has progressively expanded the role of
+reinforcement learning from isolated skills toward full-team play.
 
-O glossário também pode ser utilizado para simbolos matemáticos, então pode-se definir por exemplo uma variável delta de Kronecker e utilizar o comando ``$\backslash$gls\{\}'', \gls{delta_kro}. 
-Se houver a necessidade de modificar o simbolo utilizado, não precisa alterar todas as entradas ao longo da tese, basta alterar o simbolo em ``listadesimbolos.tex''.
+Medeiros et al.\,(2020) introduced reinforcement learning to \gls{vsss} strategy
+by training a single robot, with \gls{ppo}, to intercept and control the ball in
+the presence of an opponent~\cite{tg_thiago}.  Two design choices from that
+work recur throughout the subsequent literature and in this thesis.  First, the
+action space was taken as the robot's wheel speeds rather than a target position
+handed to an external controller, which forces the policy to solve the planning
+and control problems jointly.  Second, because goal events are too sparse to
+drive early learning, the reward was shaped with intermediate terms and training
+was organized as a curriculum, with the agent and ball beginning close together
+and gradually separating and the opponent initially stationary and later set in
+motion.  Agents trained with this curriculum matched or outperformed both agents
+trained without it and the team's classical heuristics, establishing \gls{ppo}
+with curriculum learning as a strong baseline for the domain.
 
+Medeiros (2023) later extended this framework in his master's work, broadening
+from a single defensive skill to four scenarios — intercepting the ball on the
+player's side and recovering it to the opponent's side, each with and without an
+opponent — and introducing cooperative self-play, in which each agent carries a
+copy of the same network and learns to coordinate with itself rather than treat
+its copy purely as an adversary~\cite{master_thiago}.  This is, to the author's
+knowledge, the first work to combine self-play with \gls{ppo} in \gls{vsss}, and
+its scenario-based curriculum and shared-network design are direct antecedents
+of the two-stage, symmetry-aware approach taken here.
 
+Yamane (2023) addressed a different role and a different challenge: a learned
+goalkeeper policy and, crucially, its transfer to physical
+hardware~\cite{tg_Yamane}.  Where the earlier works evaluated policies only in
+simulation, this thesis confronts the reality gap between the simulator and the
+real robot, treating line-following control and decision-making under real
+sensing and actuation noise.  Its treatment of sim-to-real transfer frames the
+domain-randomization and noise-injection considerations that the present work
+defers to its own future-work agenda.
+
+Baldão et al.\,(2023) moved the framework into an explicitly adversarial,
+multi-agent regime, studying penalty-kick scenarios in which an attacker and a
+goalkeeper are trained against each other~\cite{master_thay}.  The central
+question of that work is how to choose the opponent during self-play.  It
+formalizes a family of opponent-sampling strategies that differ in how much of
+the training history they draw from — for instance, sampling uniformly from all
+past versions of the opponent, from only the most recent half, or from a fixed
+recent window — and analyzes how this choice affects the robustness and quality
+of the learned policy.  This is precisely the design space that the second
+curriculum stage of the present work must navigate, and Baldão's analysis is the
+most directly applicable guidance available for it.
+
+Beyond the ITAndroids line, Bassani et al.\,(2020) developed an open
+reinforcement-learning framework for \gls{vsss} and demonstrated sim-to-real
+transfer of trained policies, with a resulting team placing competitively at the
+2019 Latin American Robotics Competition~\cite{bassani2020}.  Closest in spirit
+to this thesis, Brandão et al.\,(2022) trained a full 3v3 team with multi-agent
+\gls{ppo} and self-play, using a shared policy across the three homogeneous
+robots and a centralized data-collection scheme, and reported a policy capable
+of defeating the strongest available heuristic opponent~\cite{brandao2022}.
+Brandão's work establishes that full-team 3v3 learning is feasible; the present
+work takes that feasibility as its starting point and asks what becomes possible
+once the simulation-throughput and sample-efficiency constraints under which it
+operated are relaxed.
+
+\subsection{Accelerated Simulation for Reinforcement Learning}
+
+On-policy algorithms such as \gls{ppo} consume a large volume of fresh
+environment transitions, which makes simulation throughput a primary determinant
+of training cost.  The \gls{vsss} works above run physics on the \gls{cpu} and
+communicate with the learner across a process boundary, an architecture whose
+throughput scales poorly with the number of parallel environments.
+
+A recent direction addresses this by relocating the environment onto the
+hardware accelerator.  Frameworks such as Brax express rigid-body physics as
+differentiable, batched array operations that execute on \gls{gpu}, allowing
+thousands of environments to be stepped simultaneously and bringing the
+simulator and the learner onto the same device~\cite{brax2021}.  In the robot
+soccer context specifically, Smit et al.\,(2023) built a custom 2D environment
+whose physics is expressed as simple vectorizable operations and reported
+throughput one to two orders of magnitude higher than a wrapped general-purpose
+simulator for the same task~\cite{smit2023}, demonstrating that a purpose-built
+batched environment can dramatically reduce training time precisely because it
+avoids the overhead of a general engine.  The simulator developed in this work
+follows this paradigm, applying it to the \gls{vsss} domain.
+
+\subsection{Prioritized Experience and Scenario Selection}
+
+A complementary way to reduce training cost is to improve the value of each
+transition rather than the rate at which transitions are produced.  Prioritized
+Experience Replay~\cite{schaul2016per} established that, in off-policy learning,
+replaying transitions in proportion to their temporal-difference error learns
+faster than uniform replay.  Prioritized Level Replay (\gls{plr}) extends this
+intuition to the selection of \emph{which situations to play} rather than which
+past transitions to revisit: it scores environment configurations by an estimate
+of their future learning potential and biases the agent's experience toward the
+configurations expected to be most informative, inducing an implicit curriculum
+without any predefined ordering of difficulty~\cite{jiang2021plr}.  The sampler
+proposed in this work adapts this principle to \gls{vsss}, treating each
+initialized game situation as a level whose priority is derived from the
+policy's recent value-prediction error.
+
+The same selection problem also appears in multi-agent self-play.  AlphaStar's
+league training, for example, did not train only against the latest policy; it
+maintained a population of agents so that the learner faced varied opponents and
+did not overfit to a single strategy~\cite{starcraft_marl}.  In this work,
+\gls{plr} addresses the analogous question on the environment side: which game
+situations should the current policy experience next?
+
+% ------------------------------------------------------------------
+\section{Contributions}
+\label{sec:contributions}
+% ------------------------------------------------------------------
+
+This work is organized around two costs that limit large-scale reinforcement
+learning in \gls{vsss}: throughput, or how many fresh transitions can be
+produced per second, and sample efficiency, or how informative those transitions
+are for the current policy.  The first cost is addressed directly by moving the
+simulator onto the accelerator.  The second is addressed in TG-1 by establishing
+the training baseline and initialization interface on which the
+prioritized-level-replay sampler will operate in TG-2.
+
+The two main TG-1 contributions are therefore:
+
+\begin{itemize}
+    \item A JAX-based, GPU-parallel simulator for 3v3 \gls{vsss}, built
+    around batched physics and accelerator-friendly rollout loops.  The
+    simulator is designed to step thousands of independent game instances
+    simultaneously on a single device, eliminating the inter-process
+    communication overhead present in all existing \gls{vsss} training
+    pipelines.
+
+    \item A policy-training baseline for sample-efficient extensions: a
+    centralized joint policy
+    trained from scratch to control a 3v3 \gls{vsss} team using the new
+    simulator, with learning curves showing that the infrastructure supports
+    reliable policy improvement and characterizing the role of initialization
+    strategy in the learning process.  These results motivate the
+    \gls{plr} sampler and provide the comparison point for its TG-2 evaluation.
+\end{itemize}
+
+The TG-1 policy is deliberately centralized: a single network observes the
+global game state and commands all three allied robots simultaneously.  This
+formulation is not the final multi-agent architecture, but a controlled baseline
+and stepping stone toward the per-robot decentralized formulation, full
+self-play curriculum, symmetry-aware data augmentation, and \gls{plr} sampler
+planned for TG-2.
+
+This work also contributes to the relatively limited literature on applying
+deep \gls{rl} to full-team decision-making and control in the IEEE \gls{vsss}
+league, and aligns with the ITAndroids team's mission of advancing and
+disseminating knowledge in robotics and artificial intelligence.
+
+% ------------------------------------------------------------------
+\section{Outline of this Work}
+% ------------------------------------------------------------------
+
+Chapter~2 describes the IEEE \gls{vsss} domain, the differential-drive robot
+model, and the existing simulators used in the community and their limitations
+for large-scale \gls{rl} training.  Chapter~3 covers the machine-learning
+background: reinforcement learning fundamentals, \gls{ppo}, curriculum
+learning, prioritized level replay, multi-agent self-play, symmetry
+exploitation, and GPU-accelerated simulation.  Chapter~4 defines the proposed
+methodology, including the multi-agent \gls{mdp} formulation, policy
+architecture, and simulator design. Chapter~5 reports preliminary TG-1 results,
+focusing on measured simulator throughput, interface validation and two simple example policy training experiments, as well as some of the discussion regarding the role of planned improvements in TG-2.
+Chapter~6 summarizes TG-1 and defines the roadmap toward TG-2.

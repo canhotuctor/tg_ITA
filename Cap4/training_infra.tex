@@ -1,0 +1,134 @@
+% ============================================================
+%  TG-1 training-infrastructure diagram (AlphaStar Ext. Fig. 6 style).
+%
+%  Required preamble (already present in tese.tex):
+%      \usepackage{tikz}
+%      \usetikzlibrary{arrows.meta,shapes,positioning}
+%  No calc/external libraries are needed.
+%
+%  Showcases the actual TG-1 smoke-test loop (scripts/smoke.py):
+%    InitMode -> VSSVecEnv (jit(vmap(step)), JAX) -> obs/act loop with the
+%    MLP policy -> trajectories cross the Gymnasium/SB3 boundary -> SB3 PPO
+%    learner (PyTorch, CPU) -> parameters back to the policy; MLflow logs
+%    rewards, episode length, throughput and checkpoints.
+% ============================================================
+
+% ---- palette (mirrors the reference figure) ----
+\definecolor{tgDeepBlue}{RGB}{17,52,160}
+\definecolor{tgTileBlue}{RGB}{96,141,224}
+\definecolor{tgPaleBlue}{RGB}{223,231,249}
+\definecolor{tgGold}{RGB}{245,199,38}
+\definecolor{tgPaleGold}{RGB}{253,243,205}
+\definecolor{tgCrimson}{RGB}{214,40,87}
+\definecolor{tgArrow}{RGB}{40,40,55}
+
+% ---- centred grid of small tiles (drawn from the current origin) ----
+% #1=lastCol (cols-1)  #2=lastRow (rows-1)  #3=colour  #4=step  #5=cell
+\providecommand{\tgtiles}[5]{%
+  \foreach \tx in {0,...,#1}{%
+    \foreach \ty in {0,...,#2}{%
+      \fill[#3] (\tx*#4 - #1*#4/2 - #5/2, \ty*#4 - #2*#4/2 - #5/2)
+                rectangle +(#5,#5);}}%
+}
+
+\begin{figure}[ht]
+    \centering
+    \resizebox{\textwidth}{!}{%
+    \begin{tikzpicture}[
+        font=\scriptsize,
+        card/.style={draw=tgDeepBlue, line width=0.8pt, rounded corners=2pt},
+        flow/.style={-{Latex[length=2.2mm,width=1.8mm]}, line width=0.9pt, draw=tgArrow},
+        lab/.style={font=\scriptsize, text=tgArrow, fill=white, inner sep=1.2pt},
+        sub/.style={font=\tiny, align=center, text=tgDeepBlue!85!black},
+    ]
+
+    % ================= dashed "on-device training loop" container ==========
+    \draw[dashed, line width=1pt, draw=tgCrimson, rounded corners=4pt]
+        (-0.3,-2.55) rectangle (14.7,1.55);
+    \node[fill=tgCrimson, text=white, font=\scriptsize\bfseries,
+          inner sep=2.5pt, rounded corners=1pt]
+        at (1.15,1.55) {On-device training loop};
+
+    % ============================ LEARNER card =============================
+    \node[card, fill=tgPaleGold, minimum width=3.4cm, minimum height=2.2cm]
+        (learner) at (1.9,0) {};
+    \fill[tgDeepBlue] ([yshift=-0.5cm]learner.north west) rectangle (learner.north east);
+    \node[white, font=\scriptsize\bfseries] at ([yshift=-0.25cm]learner.north) {Learner (PPO)};
+    \begin{scope}[shift={(1.9,0.1)}] \tgtiles{3}{2}{tgGold}{0.26}{0.18} \end{scope}
+    \node[sub] at (1.9,-0.78) {Stable-Baselines3\\PyTorch $\cdot$ CPU\\gradient updates};
+
+    % ============================ POLICY card ==============================
+    \node[card, fill=tgPaleGold, minimum width=3.0cm, minimum height=2.2cm]
+        (policy) at (6.6,0) {};
+    \fill[tgDeepBlue] ([yshift=-0.5cm]policy.north west) rectangle (policy.north east);
+    \node[white, font=\scriptsize\bfseries] at ([yshift=-0.25cm]policy.north) {Policy (Actor)};
+    \begin{scope}[shift={(6.6,0.1)}] \tgtiles{2}{2}{tgGold}{0.26}{0.18} \end{scope}
+    \node[sub] at (6.6,-0.78) {MLP $\pi_\theta$\\shared actor--critic\\centralized joint control};
+
+    % ========================= ENVIRONMENTS card ==========================
+    \node[card, fill=tgPaleBlue, minimum width=3.8cm, minimum height=2.2cm]
+        (env) at (12.2,0) {};
+    \fill[tgDeepBlue] ([yshift=-0.5cm]env.north west) rectangle (env.north east);
+    \node[white, font=\scriptsize\bfseries] at ([yshift=-0.25cm]env.north) {Environments};
+    \begin{scope}[shift={(12.2,0.12)}] \tgtiles{5}{3}{tgTileBlue}{0.22}{0.15} \end{scope}
+    \node[sub] at (12.2,-0.80) {\texttt{VSSVecEnv} $\cdot$ JAX\\$\mathrm{jit}(\mathrm{vmap}(\texttt{step}))$\\256--1024 parallel matches};
+
+    % ============================ MLflow card ==============================
+    \node[card, fill=tgPaleBlue, minimum width=3.4cm, minimum height=1.55cm]
+        (mlflow) at (1.9,4.4) {};
+    \fill[tgDeepBlue] ([yshift=-0.42cm]mlflow.north west) rectangle (mlflow.north east);
+    \node[white, font=\scriptsize\bfseries] at ([yshift=-0.21cm]mlflow.north) {MLflow tracking};
+    \begin{scope}[shift={(1.9,4.55)}] \tgtiles{4}{1}{tgTileBlue}{0.2}{0.13} \end{scope}
+    \node[sub] at (1.9,4.12) {reward (mean/min) $\cdot$ ep.\ length\\throughput $\cdot$ checkpoints};
+
+    % ========================= INITIALIZATION card ========================
+    \node[card, fill=tgPaleBlue, minimum width=3.8cm, minimum height=1.55cm]
+        (init) at (12.2,4.4) {};
+    \fill[tgDeepBlue] ([yshift=-0.42cm]init.north west) rectangle (init.north east);
+    \node[white, font=\scriptsize\bfseries] at ([yshift=-0.21cm]init.north) {Initialization};
+    \begin{scope}[shift={(12.2,4.55)}] \tgtiles{4}{1}{tgTileBlue}{0.2}{0.13} \end{scope}
+    \node[sub] at (12.2,4.12) {\texttt{InitMode}: kickoff / random\\($\rightarrow$ PLR sampler, TG-2)};
+
+    % =============================== ARROWS ================================
+    % Learner -> Policy : parameters
+    \draw[flow] (learner.east) -- (policy.west)
+        node[lab, midway] {Parameters $\theta$};
+
+    % Policy -> Environments : actions  (upper)
+    \draw[flow] ([yshift=0.28cm]policy.east) -- ([yshift=0.28cm]env.west)
+        node[lab, midway] {Actions $a\!\in\!\mathbb{R}^{6}$};
+    % Environments -> Policy : observations  (lower)
+    \draw[flow] ([yshift=-0.28cm]env.west) -- ([yshift=-0.28cm]policy.east)
+        node[lab, midway] {Obs.\ $o\!\in\!\mathbb{R}^{46}$};
+
+    % Environments -> Learner : trajectories (bottom return path)
+    \draw[flow] (env.south) -- (12.2,-2.05) -- (1.9,-2.05) -- (learner.south);
+    \node[lab] at (9.2,-2.05) {Trajectories $(o,a,r,\text{done})$};
+    % SB3 / Gymnasium boundary node sitting on the return path
+    \node[draw=tgDeepBlue, line width=0.8pt, fill=white, rounded corners=2pt,
+          align=center, font=\tiny, inner sep=2.5pt] at (5.0,-2.05)
+        {Gymnasium\,$\rightleftarrows$\,SB3\\adapter};
+
+    % Initialization -> Environments : initial states
+    \draw[flow] (init.south) -- (env.north)
+        node[lab, midway] {Initial states};
+
+    % Learner -> MLflow : metrics & checkpoints
+    \draw[flow] (learner.north) -- (mlflow.south)
+        node[lab, midway] {metrics};
+
+    \end{tikzpicture}%
+    }
+    \caption{Training infrastructure used for the TG-1 smoke tests
+    (\texttt{scripts/smoke.py}).  The on-device loop (dashed box) holds a single
+    batched \texttt{VSSVecEnv} that advances 256--1024 matches in parallel through
+    $\mathrm{jit}(\mathrm{vmap}(\texttt{step}))$ on the JAX device.  Each step
+    exports a $\mathbb{R}^{46}$ observation to the MLP policy, which returns the
+    $\mathbb{R}^{6}$ joint wheel-speed action; collected trajectories cross the
+    Gymnasium\,$\rightleftarrows$\,SB3 adapter to the PPO learner (PyTorch, CPU),
+    whose updated parameters $\theta$ flow back to the policy.  Episode resets are
+    driven by the pluggable \texttt{InitMode} (kickoff or random, the future
+    insertion point for the PLR sampler), and MLflow logs per-generation reward,
+    episode length, throughput and checkpoints.}
+    \label{fig:training_infra}
+\end{figure}

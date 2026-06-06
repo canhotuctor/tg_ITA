@@ -814,8 +814,8 @@
 						\small{S{\~a}o Jos{\'e} dos Campos, \@publday\ de \@publmonth\ de \@publyear.}
 				 \fi
 
-			 \end{center}
 			 \end{spacing}
+			 \end{center}
 
 			 }
 	     {

@@ -310,3 +310,6 @@ TSWLatexianTemp*
 ## ---
 ## Obsidian
 .obsidian/*
+
+## ---
+.DS_Store
