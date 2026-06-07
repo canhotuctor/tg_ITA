@@ -91,9 +91,11 @@ hierarchical inductive bias has proven effective across perception, language,
 and control, including in high-dimensional continuous-control settings
 directly comparable to this work~\cite{silver2016mastering,berner2019dota}.
 
-For the \gls{vsss} policy, the input is a moderately sized observation vector
-(robot poses, velocities, and ball state, described in Chapter~4), so
-convolutional or recurrent architectures are unnecessary.  A fully-connected
+For the \gls{vsss} policy, the observation vector includes the positions,
+orientations, and velocities of all robots and the ball — the full simulator
+state — so no hidden dynamics need to be inferred from a history of frames.
+Recurrent architectures are therefore unnecessary; a feed-forward network
+suffices.  A fully-connected
 \gls{mlp} with two or three hidden layers captures the required nonlinear
 dependencies while remaining fast to evaluate on a \gls{gpu} across thousands
 of parallel environments.  The actor and critic each use a separate
@@ -218,16 +220,15 @@ keeps the task at a difficulty where learning can occur.
 
 For \gls{vsss}, the final objective — winning 3v3 matches — is far too complex
 for a randomly-initialized policy to explore productively.  A staged approach
-addresses this: allied robots can first practice ball conduction and basic
+addresses this: allied robots first practice ball conduction and basic
 positioning without any opposition, then face opponents only once those
-sub-skills are established.  Chapter~4 describes the two-stage curriculum used
-in this work and the conditions that govern the transition between stages.
+sub-skills are established.
 
 % ------------------------------------------------------------------
 \subsection{Prioritized Level Replay}
 % ------------------------------------------------------------------
 
-\gls{plr}~\cite{jiang2021plr} is a mechanism for allocating training
+\gls{plr}~\cite{prioritized_level_replay} is a mechanism for allocating training
 experience across a distribution of situations, or \emph{levels}, according to
 an estimate of their future learning potential rather than uniformly at random.
 The core observation is that, at any point in training, some situations will
@@ -242,7 +243,7 @@ After each episode on level $l_i$, \gls{plr} computes a score
     \label{eq:plr_score}
 \end{equation}
 %
-the mean absolute \gls{gae} over the trajectory~\cite{jiang2021plr}.  This
+the mean absolute \gls{gae} over the trajectory~\cite{prioritized_level_replay}.  This
 quantity is equivalent to the mean $L_1$ value loss under \gls{ppo}, and
 levels on which the critic is most surprised carry the highest priority.  A
 staleness correction down-weights levels that have not been visited recently,
@@ -309,7 +310,7 @@ objective.  The value of a team state should therefore be invariant to which
 robot is labeled 1, 2, or 3.  Sharing policy and critic parameters across all
 three robots exploits this directly — a single network is updated using
 transitions from all three agents simultaneously, tripling effective data
-throughput without requiring a larger batch.  Brandão et al.\,(2022) applied
+throughput without requiring a larger batch.  \textcite{brandao2022} applied
 exactly this principle in their \gls{vsss} multi-agent formulation, observing
 that shared parameters provide a natural implicit regularization.
 
@@ -322,8 +323,7 @@ a second, reflected transition at no additional simulation cost, doubling the
 effective number of distinct states the policy is trained on.
 
 Both forms of symmetry are treated as first-class design choices in the
-methodology rather than as optional post-processing; the details are given in
-Chapter~4.
+training methodology rather than as optional post-processing.
 
 % ------------------------------------------------------------------
 \section{High-Throughput, GPU-Accelerated Simulation}
@@ -335,32 +335,18 @@ per wall-clock second is therefore a direct multiplier on how much training
 progress can be made in a given time budget.  When the simulator is the
 bottleneck, improvements to the learning algorithm yield diminishing returns.
 
-Conventional \gls{vsss} simulators run a single physics instance on the
-\gls{cpu} and exchange state–action packets with a Python learner through
-inter-process sockets (Section~2.3).  The round-trip latency of this boundary
-dominates the per-step cost once the physics itself is cheap — as it is for the
-simple rigid-body dynamics of \gls{vsss}.  Running many environments in
-parallel on the \gls{cpu} reduces this somewhat, but each additional instance
-consumes an additional core and the total throughput scales poorly beyond the
-core count.
+\gls{jax}~\cite{jax2018github} provides three complementary transformations
+that make GPU-parallel simulation practical.  \texttt{jit} compiles a
+numerical function to native code, eliminating Python overhead.  \texttt{vmap}
+lifts a single-environment step into a vectorized step over a batch of
+environments, enabling thousands of independent games to advance in a single
+device call.  \texttt{scan} implements a fixed-length loop (a rollout horizon)
+as a single compiled operation, avoiding repeated Python-level dispatch.
+Because \gls{jax} programs are purely functional, state is passed explicitly
+with no hidden side-effects, so the entire collect-and-update loop runs on the
+accelerator without data copies between host and device.
 
-A different approach expresses the environment as batched array operations that
-the hardware accelerator can execute across thousands of instances
-simultaneously.  \gls{jax}~\cite{jax2018github} supports this through three
-complementary transformations: \texttt{jit} compiles a numerical function to
-native code, eliminating Python overhead; \texttt{vmap} lifts a
-single-environment step into a vectorized step over a batch of environments;
-and \texttt{scan} implements a fixed-length loop (a rollout horizon) as a
-single compiled operation, avoiding repeated Python-level dispatch.  Because
-\gls{jax} programs are purely functional, state is passed explicitly and there
-are no hidden side-effects, which makes it straightforward to map the entire
-collect-and-update loop onto the accelerator without data copies between host
-and device.
-
-For \gls{vsss}, the physics model is simple enough — rigid-body kinematics,
-elastic wall collisions, and a friction model for ball–floor contact — that the
-full simulation can be implemented as differentiable array operations without
-any approximation that would matter for policy learning.  The accuracy trade-off
-relative to a full ODE-based engine is discussed in the context of
-sim-to-real transfer in Chapter~4; the measured throughput of the resulting
-simulator is reported in Chapter~5.
+For \gls{vsss}, the physics model — rigid-body kinematics, elastic wall
+collisions, and a friction model for ball--floor contact — is simple enough
+to implement as differentiable array operations without any approximation that
+would matter for policy learning.

@@ -71,6 +71,18 @@
   %   \node[scale=0.75] at (\x,\y+7) {\txt};
   % }
   
+  % Cartesian axis in the bottom-left area
+  \def\axlen{12}
+  \def\axX{30}
+  \def\axY{22}
+  \draw[->, line width=1pt] (\axX,\axY) -- (\axX+\axlen,\axY) node[right, scale=0.7] {$+x$};
+  \draw[->, line width=1pt] (\axX,\axY) -- (\axX,\axY+\axlen) node[above, scale=0.7] {$+y$};
+  \fill (\axX,\axY) circle (1);
+
+  % Center mark at (0,0)
+  \fill (75,65) circle (1.2);
+  \node[scale=0.7, above right] at (75,65) {$(0,0)$};
+
   % Optional coordinate labels
   \node[scale=0.8] at (75,136) {150 cm};
   \node[scale=0.8, rotate=90] at (-18,65) {130 cm};
