@@ -59,9 +59,23 @@
 }
 
 
+@phdthesis{franzoni2017,
+  title={Trajectory Planning Considering Acceleration Limits for an Autonomous Soccer Player}, 
+  author={Okuyama, Igor Franzoni},
+  language={en},
+  school={ITA},
+  language={en},
+  year={2017},
+  type = {Unpublished Bachelor's Thesis},
+}
+
+
 % -----------------------------
 Robot soccer works
 
+% O PAPER relativamente mais importante no domínio.
+% Referência em Reward shaping e Self-play que deu certo.
+% Teoricamente
 @article{brandao2022,
   title={Multiagent Reinforcement Learning for Strategic Decision Making and Control in Robotic Soccer Through Self-Play},
   volume={10},
@@ -72,6 +86,7 @@ Robot soccer works
   author={Brandao, Bruno and De Lima, Telma Woerle and Soares, Anderson and Melo, Luckeciano and Maximo, Marcos R. O. A.}, year={2022}, pages={72628–72642}, language={en}
 }
 
+% framework da robocin, basicamente
 @inbook{rsoccer,
   address={Cham}, series={Lecture Notes in Computer Science},
   title={rSoccer: A Framework for Studying Reinforcement Learning in Small and Very Small Size Robot Soccer}, volume={13132}, ISBN={978-3-030-98681-0}, url={https://link.springer.com/10.1007/978-3-030-98682-7_14}, DOI={10.1007/978-3-030-98682-7_14}, booktitle={RoboCup 2021: Robot World Cup XXIV}, publisher={Springer International Publishing},
@@ -80,6 +95,7 @@ Robot soccer works
   year={2022}, pages={165–176}, collection={Lecture Notes in Computer Science}, language={en}
 }
 
+% paper descrevendo como eles ficaram em 4o lugar na LARC 2019
 @article{bassani2020,
   title={A Framework for Studying Reinforcement Learning and Sim-to-Real in Robot Soccer},
   rights={Creative Commons Attribution Non Commercial Share Alike 4.0 International},
@@ -92,8 +108,33 @@ Robot soccer works
   language={en}
 }
 
+% ------
+go-to reference for RL in robotics
+try to find a more recent one.
+@book{sutton2018reinforcement,
+  address={Cambridge, Massachusetts},
+  edition={Second edition},
+  series={Adaptive computation and machine learning series},
+  title={Reinforcement learning: an introduction},
+  ISBN={978-0-262-03924-6},
+  callNumber={Q325.6 .R45 2018},
+  publisher={The MIT Press},
+  author={Sutton, Richard S. and Barto, Andrew G.},
+  year={2018},
+  collection={Adaptive computation and machine learning series}
+}
+
 % -----------------------------
 Prioritized sampling works
+
+@article{schaul2016per,
+  author  = {Schaul, Tom and Quan, John and Antonoglou, Ioannis and Silver, David},
+  title   = {Prioritized Experience Replay},
+  journal = {arXiv preprint arXiv:1511.05952},
+  year    = {2016},
+  url     = {https://arxiv.org/abs/1511.05952},
+  urlaccessdate = {2026-05-31}
+}
 
 @InProceedings{prioritized_level_replay,
   title = 	 {Prioritized Level Replay},
@@ -132,7 +173,7 @@ Prioritized sampling works
 
 % -----------
 
-Various tools, libraries, resources...
+Various tools, libraries and general domain resources...
 
 % JAX
 @software{jax2018github,
@@ -144,15 +185,16 @@ Various tools, libraries, resources...
   urlaccessdate = {2026-05-29}
 }
 % BRAX
-@inproceedings{brax2021,
+@InProceedings{freeman2021brax,
+  title     = {Brax -- A Differentiable Physics Engine for Large Scale Rigid Body Simulation},
   author    = {Freeman, C. Daniel and Frey, Erik and Raichuk, Anton and Girgin, Sertan and Mordatch, Igor and Bachem, Olivier},
-  title     = {Brax: A Differentiable Physics Engine for Large Scale Rigid Body Simulation},
-  booktitle = {Advances in Neural Information Processing Systems},
-  year      = {2021}
+  booktitle = {Proceedings of the Neural Information Processing Systems Track on Datasets and Benchmarks},
+  year      = {2021},
+  note      = {arXiv:2106.13281}
 }
 
 % ODE
-@manual{smith2001,
+@misc{smith2001,
   author = {Smith, Russell},
   title = {Open Dynamics Engine},
   year = {2001},
@@ -170,6 +212,98 @@ Various tools, libraries, resources...
   howpublished = {\url{https://github.com/fira-simurosot/FIRASim/}}
 }
 
+@inproceedings{makoviychuk2021isaacgym,
+  title     = {Isaac Gym: High Performance {GPU}-Based Physics Simulation for Robot Learning},
+  author    = {Makoviychuk, Viktor and Wawrzyniak, Lukasz and Guo, Yunrong and Lu, Michelle and Storey, Kier and Macklin, Miles and Hoeller, David and Rudin, Nikita and Allshire, Arthur and Handa, Ankur and State, Gavriel},
+  booktitle = {Proceedings of the Neural Information Processing Systems Track on Datasets and Benchmarks},
+  year      = {2021},
+  note      = {arXiv:2108.10470}
+}
+
+@inproceedings{todorov2012mujoco,
+  title        = {{MuJoCo}: A physics engine for model-based control},
+  author       = {Todorov, Emanuel and Erez, Tom and Tassa, Yuval},
+  booktitle    = {2012 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS)},
+  pages        = {5026--5033},
+  year         = {2012},
+  organization = {IEEE},
+  doi          = {10.1109/IROS.2012.6386109}
+}
+
+@misc{zakka2025mujocoplayground,
+  title         = {{MuJoCo} Playground: An Open-Source Framework for {GPU}-Accelerated Robot Learning and Sim-to-Real Transfer},
+  author        = {Zakka, Kevin and Tabanpour, Baruch and Liao, Qiayuan and Haiderbhai, Mustafa and Holt, Samuel and Luo, Jing Yuan and Allshire, Arthur and Frey, Erik and Sreenath, Koushil and Kahrs, Lueder A. and Sferrazza, Carlo and Tassa, Yuval and Abbeel, Pieter},
+  year          = {2025},
+  eprint        = {2502.08844},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.RO}
+}
+
+% defines what the fuck anakin and sebulba are
+@article{hessel2021podracer,
+  title   = {Podracer architectures for scalable Reinforcement Learning},
+  author  = {Hessel, Matteo and Kroiss, Manuel and Clark, Aidan and Kemaev, Iurii and Quan, John and Keck, Thomas and Viola, Fabio and van Hasselt, Hado},
+  journal = {arXiv preprint arXiv:2104.06272},
+  year    = {2021}
+}
+
+@article{raffin2021sb3,
+  title   = {Stable-Baselines3: Reliable Reinforcement Learning Implementations},
+  author  = {Raffin, Antonin and Hill, Ashley and Gleave, Adam and Kanervisto, Anssi and Ernestus, Maximilian and Dormann, Noah},
+  journal = {Journal of Machine Learning Research},
+  volume  = {22},
+  number  = {268},
+  pages   = {1--8},
+  year    = {2021}
+}
+
+% um paper da nvidia que usa parallel RL para treinar um robot de 4 pernas para andar.
+@article{rudin2022walkminutes,
+  series={Proceedings of Machine Learning Research},
+  title={Learning to Walk in Minutes Using Massively Parallel Deep Reinforcement Learning},
+  volume={164},
+  journal={Proceedings of the 5th Conference on Robot Learning (CoRL)},
+  publisher={PMLR},
+  author={Rudin, Nikita and Hoeller, David and Reist, Philipp and Hutter, Marco},
+  year={2022},
+  pages={91--100},
+  collection={Proceedings of Machine Learning Research},
+  language={en}
+}
+
+@misc{rslrl,
+  title        = {{RSL-RL}: Fast and Simple Implementations of {RL} Algorithms},
+  author       = {Rudin, Nikita and others},
+  year         = {2021},
+  howpublished = {\url{https://github.com/leggedrobotics/rsl_rl}}
+}
+
+@misc{toledo2024stoix,
+  title        = {Stoix: Distributed Single-Agent Reinforcement Learning End-to-End in {JAX}},
+  author       = {Toledo, Edan},
+  year         = {2024},
+  howpublished = {\url{https://github.com/EdanToledo/Stoix}}
+}
+
+% isso aqui na verdade é pra ser sobre o RLax, mas eles pedem pra citar o DeepMind JAX ecosystem.
+@misc{deepmind2020rlax,
+  title        = {The {DeepMind} {JAX} Ecosystem},
+  author       = {Babuschkin, Igor and Baumli, Kate and Bell, Alison and Bhupatiraju, Surya and Bruce, Jake and Buchlovsky, Peter and Budden, David and Cai, Trevor and Clark, Aidan and Danihelka, Ivo and others},
+  year         = {2020},
+  howpublished = {\url{http://github.com/google-deepmind}}
+}
+
+%pygame renderer
+@misc{pygame2024,
+  title        = {Pygame},
+  rights={License: GNU Library or Lesser General Public License (LGPL) (LGPL)},
+  url={https://github.com/pygame/pygame},
+  year={2024},
+  month=sept
+}
+
+
+% ------------------
 % IEEE VSSS image setup reference
 @misc{ieee_vsss_rules,
   author = {IEEE},
@@ -206,63 +340,7 @@ Various tools, libraries, resources...
 }
 
 % -----------------
-
-@inproceedings{schulman2015trpo,
-  author = {Schulman, John and Levine, Sergey and Abbeel, Pieter and Jordan, Michael and Moritz, Philipp},
-  title = {Trust Region Policy Optimization},
-  booktitle = {Proceedings of the 32nd International Conference on Machine Learning},
-  pages = {1889--1897},
-  publisher = {PMLR},
-  year = {2015}
-}
-
-@article{schulman2015gae,
-  author = {Schulman, John and Moritz, Philipp and Levine, Sergey and Jordan, Michael and Abbeel, Pieter},
-  title = {High-Dimensional Continuous Control Using Generalized Advantage Estimation},
-  journal = {arXiv preprint arXiv:1506.02438},
-  year = {2015},
-  url = {https://arxiv.org/abs/1506.02438},
-  urlaccessdate = {2026-05-30}
-}
-
-
-@article{brown1951fsp,
-  author = {Brown, George W.},
-  title = {Iterative Solution of Games by Fictitious Play},
-  journal = {Activity Analysis of Production and Allocation},
-  volume = {13},
-  number = {1},
-  pages = {374--376},
-  year = {1951}
-}
-
-@book{sutton2018reinforcement,
-  author = {Sutton, Richard S. and Barto, Andrew G.},
-  title = {Reinforcement Learning: An Introduction},
-  edition = {2},
-  publisher = {MIT Press},
-  address = {Cambridge},
-  year = {2018}
-}
-
-@article{schulman2017ppo,
-  author = {Schulman, John and Wolski, Filip and Dhariwal, Prafulla and Radford, Alec and Klimov, Oleg},
-  title = {Proximal Policy Optimization Algorithms},
-  journal = {arXiv preprint arXiv:1707.06347},
-  year = {2017},
-  url = {https://arxiv.org/abs/1707.06347},
-  urlaccessdate = {2026-05-29}
-}
-
-@inproceedings{bengio2009curriculum,
-  author = {Bengio, Yoshua and Louradour, Jerome and Collobert, Ronan and Weston, Jason},
-  title = {Curriculum Learning},
-  booktitle = {Proceedings of the 26th Annual International Conference on Machine Learning},
-  pages = {41--48},
-  publisher = {ACM},
-  address = {New York},
-  year = {2009}
-}
+AlphaGo works. First paper to show that deep learning can be used to play a game at a superhuman level. Second to show it can learn without human knowledge.
 
 @article{silver2016mastering,
   author = {Silver, David and Huang, Aja and Maddison, Chris J. and Guez, Arthur and Sifre, Laurent and van den Driessche, George and Schrittwieser, Julian and Antonoglou, Ioannis and Panneershelvam, Veda and Lanctot, Marc and Dieleman, Sander and Grewe, Dominik and Nham, John and Kalchbrenner, Nal and Sutskever, Ilya and Lillicrap, Timothy and Leach, Madeleine and Kavukcuoglu, Koray and Graepel, Thore and Hassabis, Demis},
@@ -284,6 +362,8 @@ Various tools, libraries, resources...
   year = {2017}
 }
 
+% Dota 2 work
+% not really sure about this one, maybe bad to cite?
 @article{berner2019dota,
   author = {Berner, Christopher and Brockman, Greg and Chan, Brooke and Cheung, Vicki and Debiak, Przemyslaw and Dennison, Christy and Farhi, David and Fischer, Quirin and Hashme, Shariq and Hesse, Chris and Jozefowicz, Rafal and Gray, Scott and Olsson, Catherine and Pachocki, Jakub and Petrov, Michael and de Oliveira Pinto, Henrique Pondé and Raiman, Jonathan and Salimans, Tim and Schlatter, Jeremy and Schneider, Jonas and Sidor, Szymon and Sutskever, Ilya and Tang, Jie and Wolski, Filip and Zhang, Susan},
   title = {Dota 2 with Large Scale Deep Reinforcement Learning},
@@ -293,14 +373,63 @@ Various tools, libraries, resources...
   urlaccessdate = {2026-05-29}
 }
 
-@misc{vsssdk2019,
-  author = {{VSS-SDK Contributors}},
-  title = {{VSS-SDK}: Software Development Kit for {IEEE Very Small Size Soccer}},
-  year = {2019},
-  url = {https://github.com/VSS-SDK/VSS-SDK},
+% ----------------
+
+% paper for TRPO
+@inproceedings{schulman2015trpo,
+  author = {Schulman, John and Levine, Sergey and Abbeel, Pieter and Jordan, Michael and Moritz, Philipp},
+  title = {Trust Region Policy Optimization},
+  booktitle = {Proceedings of the 32nd International Conference on Machine Learning},
+  pages = {1889--1897},
+  publisher = {PMLR},
+  year = {2015}
+}
+
+% paper for GAE (Generalized Advantage Estimation)
+@article{schulman2015gae,
+  author = {Schulman, John and Moritz, Philipp and Levine, Sergey and Jordan, Michael and Abbeel, Pieter},
+  title = {High-Dimensional Continuous Control Using Generalized Advantage Estimation},
+  journal = {arXiv preprint arXiv:1506.02438},
+  year = {2015},
+  url = {https://arxiv.org/abs/1506.02438},
   urlaccessdate = {2026-05-30}
 }
 
+% seminal paper for PPO
+@article{schulman2017ppo,
+  author = {Schulman, John and Wolski, Filip and Dhariwal, Prafulla and Radford, Alec and Klimov, Oleg},
+  title = {Proximal Policy Optimization Algorithms},
+  journal = {arXiv preprint arXiv:1707.06347},
+  year = {2017},
+  url = {https://arxiv.org/abs/1707.06347},
+  urlaccessdate = {2026-05-29}
+}
+
+% lol, paper describing fictitious self-play in 1951, had to cite it.
+@incollection{brown1951fp,
+  address = {New York},
+  author = {George W. Brown},
+  booktitle = {Activity Analysis of Production and Allocation},
+  editor = {T. C. Koopmans},
+  publisher = {Wiley},
+  title = {Iterative Solution of Games by Fictitious Play},
+  year = {1951},
+  volume = {13},
+  number = {1},
+  pages = {374--376},
+}
+
+@inproceedings{bengio2009curriculum,
+  author = {Bengio, Yoshua and Louradour, Jerome and Collobert, Ronan and Weston, Jason},
+  title = {Curriculum Learning},
+  booktitle = {Proceedings of the 26th Annual International Conference on Machine Learning},
+  pages = {41--48},
+  publisher = {ACM},
+  address = {New York},
+  year = {2009}
+}
+
+% just a book on deep learning.
 @book{goodfellow2016deep,
   author    = {Goodfellow, Ian and Bengio, Yoshua and Courville, Aaron},
   title     = {Deep Learning},
@@ -311,11 +440,3 @@ Various tools, libraries, resources...
   urlaccessdate = {2026-05-31}
 }
 
-@article{schaul2016per,
-  author  = {Schaul, Tom and Quan, John and Antonoglou, Ioannis and Silver, David},
-  title   = {Prioritized Experience Replay},
-  journal = {arXiv preprint arXiv:1511.05952},
-  year    = {2016},
-  url     = {https://arxiv.org/abs/1511.05952},
-  urlaccessdate = {2026-05-31}
-}

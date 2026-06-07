@@ -26,34 +26,44 @@
 %  because it is the planned sample-selection mechanism for TG-2.
 % ============================================================
 
-This chapter defines the proposed methodology.  It begins with the
-high-throughput simulator, the enabling artifact on which everything else
-depends, then formulates the 3v3 task as a multi-agent reinforcement-learning
-problem, describes the policy architecture and the mechanisms that exploit the
-domain's symmetries, and presents the two-stage curriculum and
-prioritized-level-replay sampler interface.  The chapter closes with the
-tooling and a statement of scope.
+This chapter defines the proposed methodology, organized around a training
+loop in which a GPU-accelerated simulator generates batched rollouts, a
+\gls{ppo} learner consumes them, and an initialization mechanism determines
+which game situations to sample next.  The remaining sections cover each
+component: the simulator, the multi-agent problem formulation, policy
+architecture, symmetry exploitation, the two-stage curriculum and self-play
+scheme, the prioritized-level-replay sampler, and a closing statement of scope.
 
-% ==================================================================
-\section{Overview}
-% ==================================================================
-
-The methodology realizes the two contributions of
-Section~\ref{sec:contributions} within a common training loop: the simulator
-generates batched rollouts, a \gls{ppo} learner consumes them, and the
-initialization mechanism determines which situations to sample next.  The
-remaining sections specify each component.
-
-\input{Cap4/training_infra.tex}
+% \input{Cap4/training_infra.tex}
 
 
 % ==================================================================
-\section{The High-Throughput GPU Simulator}
+\section{The Simulator}
 % ==================================================================
 
-The simulator is implemented as a pure, batched JAX environment, designed for
-speed, numerical stability, and full on-accelerator execution so that the
+The simulator aims to be implemented as a batched JAX environment, designed for
+speed, numerical stability, and full on-accelerator (GPU on this work) execution so that the
 entire collect-and-update loop runs without per-step transfers to host memory.
+As this is a work in progress, this section will mainly focus on the already implemented
+parts of the framwork.
+
+The training loop connects three main components.  The \textbf{environment}
+(\texttt{VSSVecEnv}) steps 1--65536 parallel matches on the JAX device via
+$\mathrm{jit}(\mathrm{vmap}(\texttt{step}))$, producing observations
+$o \in \mathbb{R}^{46}$ and rewards for each environment.  The
+\textbf{policy} (an MLP $\pi_\theta$ acting as a centralized joint controller)
+maps each observation to a joint action $a \in \mathbb{R}^{6}$ (left and right
+wheel speeds for all three robots).  Collected trajectories $(o, a, r,
+\text{done})$ cross a Gymnasium$\leftrightarrow$SB3 adapter to the
+\textbf{learner} (\gls{sb3} \gls{ppo}, running on PyTorch mainly on CPU for now, so we have no transfer overhead from this transfer too), which updates
+the policy parameters $\theta$ and returns them to the policy.
+
+As a preparation, the simulator \textbf{initialization module}
+was designed in such a way that it can supply initial game states to the environment
+at episode reset; two modes are currently supported (kickoff and random
+placement), with the interface designed to accept a future \gls{plr} sampler
+as a drop-in replacement. Experiment metrics (per-generation reward, episode
+length, throughput, and policy checkpoints) are logged via MLflow using SB3 callback functions.
 
 % ------------------------------------------------------------------
 \subsection{Simulator State and Step Interface}
@@ -78,65 +88,83 @@ pseudo-random generator keys.  In the JAX backend this state is an immutable
 \label{sec:physics_model}
 % ------------------------------------------------------------------
 
-The physics model is two-dimensional and captures the interactions that shape
-policy learning: differential-drive motion, ball dynamics under friction,
-robot–ball and robot–robot contact, and wall and goal handling on an IEEE VSSS
-field.  Numeric dimensions (field size, robot footprint, ball diameter, goal
-opening, wheelbase, and control rate) follow the competition specification and
-are centralized in the implementation configuration module
-(\texttt{vsss\_sim.config}).  The subsections below state \emph{why} each
-modelling choice was made; run-specific training overrides are reported
-separately in Chapter~5 (Table~\ref{tab:smoke_config}).
+The physics model is two-dimensional and hand-crafted as batched array
+operations, chosen for both throughput and simplicity of implementation.  It
+covers differential-drive kinematics, ball dynamics under friction, robot–ball
+and robot–robot contact, and wall and goal handling on an IEEE VSSS field.
+Numeric dimensions follow the competition specification and are centralized in
+the simulator configuration module; run-specific training overrides are
+reported in Table~\ref{tab:smoke_config}.  Tunable physical constants —
+friction coefficients, restitution parameters, and robot dimensions — are
+calibrated to match the standard FIRASim configuration~\cite{firasim2019}.
+This alignment serves two purposes: it makes the new simulator directly
+comparable to FIRASim as a reference environment, and it prepares a future
+physics-fidelity evaluation in which a policy trained here is tested inside
+FIRASim to measure the transfer gap between this \gls{jax} based engine
+and the original C++/ODE based engine.
 
-\subsubsection{Scope and fidelity}
-\label{sec:physics_scope}
-
-TG-1 prioritizes a simulator that is fast, batched, and stable enough for
-large-scale \gls{ppo} rollouts over reproducing every effect of the team's
-legacy C++/ODE stack.  The model is planar: no vertical dynamics,
-no wheel slip model, and no explicit motor controller beyond rate-limited wheel
-commands.  That scope matches the scale of Very Small Size Soccer, where the
-dominant learning signal comes from ball interaction and team positioning
-rather than from high-fidelity drivetrain modeling.
+The model deliberately omits vertical dynamics, wheel slip, and detailed motor
+controller equations.  Some of these omissions reflect the early stage of the
+implementation rather than a permanent decision; additional effects may be
+incorporated in future iterations while preserving the 2D, vector-first
+architecture.  The subsections below state the rationale for each modelling
+choice that \emph{is} present.
 
 \subsubsection{Geometry, coordinates, and goals}
 
 The regulation field layout is Figure~\ref{fig:field} (Chapter~2).  In the
 simulator the origin is at the field centre, $+x$ points toward the opponent
 goal, and $+y$ is parallel to the goal line (Section~\ref{sec:ma_coords}).
-Each team fields three robots as $7.5 \times 7.5$\,cm \textbf{oriented bounding
-boxes (OBBs)} with circle--OBB ball contact (not circular robot proxies).
 Goals are $40$\,cm openings; scoring triggers an in-episode kickoff, not a
 terminal state.
 
+Each robot is modeled as a $7.5 \times 7.5$\,cm oriented square rigid body,
+using circle--square contact for ball--robot collisions.  The square footprint
+is an approximation adopted for simplicity of collision detection, consistent
+with both the ITAndroids ODE-based simulator~\cite{tg_thiago} and
+FIRASim~\cite{firasim2019}.  In practice, some teams use non-convex or rounded
+chassis shapes to guide the ball more effectively, but this detail is not
+captured by either reference simulator and is therefore left outside the scope of
+this model.
+
 \subsubsection{Time stepping and actuation}
 
-Control commands arrive at $60$\,Hz ($\Delta t = 1/60$\,s).  Each control step
-is subdivided into \textbf{four physics sub-steps} (\texttt{SUB\_STEPS}), so
-collisions and ball motion are integrated at $240$\,Hz effective resolution
+Control commands arrive at frequency \gls{control_freq}, with each control
+step subdivided into \gls{num_substeps} physics sub-steps, so collisions and
+ball motion are integrated at $\gls{num_substeps} \cdot \gls{control_freq}$
 without increasing the policy's decision frequency.  Robots are
 \textbf{differential-drive}: normalized actions in $[-1,1]$ map to left and
 right wheel speeds, then to body-frame $(v_x, v_y, \omega)$ via the standard
-kinematic relation with wheelbase $53$\,mm and maximum linear speed
-$\sim 1.30$\,m/s.
+kinematic relation with wheelbase \gls{wheel_base} and maximum linear speed
+\gls{max_speed}.  Specific values for all parameters are given in
+Table~\ref{tab:sim_params}.
 
-Wheel speeds do not jump instantaneously to the commanded value.  Each sub-step
-limits the change in wheel speed to approximate motor slew (\texttt{ROBOT\_WHEEL\_ACCEL\_LIMIT} $\approx 1\,g$), which smooths trajectories and avoids
-unphysically sharp turns that would otherwise appear when a neural policy
-outputs discontinuous commands.  Heading is wrapped to $(-\pi, \pi]$ after
+Wheel speeds do not jump instantaneously to the commanded value.  Each
+sub-step limits the change in wheel speed to \gls{slew_limit}
+(Table~\ref{tab:sim_params}) to approximate motor torque limits, which smooths
+trajectories and avoids unphysically sharp turns when a neural policy outputs
+discontinuous commands.  Heading is wrapped to $(-\pi, \pi]$ after
 integration.
 
 \subsubsection{Contact dynamics and ball motion}
 
-Between commands, the ball experiences rolling friction (coefficient
-\texttt{BALL\_FRICTION}) and elastic-style impulses on walls and robots
-(restititution parameters in \texttt{config}).  Robot–wall contact clamps the
-OBB inside the field and zeroes velocity components that point into the wall.
+Between commands, the ball experiences rolling friction and elastic-style
+impulses on walls and robots, with tunable friction and restitution
+coefficients.  Robot–wall contact clamps the
+the robot square inside the field and zeroes velocity components that point into the wall.
 Robot–robot collisions use separating axes on the square footprints with
 impulse exchange.  These rules are hand-tuned for stable, non-exploding
 contacts at VSSS speeds rather than for exact material parameters; the goal is
 repeatable interaction statistics for learning, not a calibrated multibody
 model.
+
+The simulator currently injects no noise or delay into observations or actuation.  The
+ITAndroids ODE-based simulator supports Gaussian noise injection on position
+and orientation estimates to simulate vision uncertainty~\cite{tg_thiago}, and
+\textcite{master_thay} acknowledges this capability but omits it for
+simplicity.  This work follows the same choice: noise injection, delay injection and domain
+randomization are deferred to later stages, once a competitive policy is developed
+and the focus shifts toward physical deployment.
 
 \subsubsection{Physics design choices}
 \label{sec:physics_design}
@@ -147,8 +175,7 @@ implement.
 
 \begin{table}[ht]
     \centering
-    \caption{Physics design choices in the VSSS simulator.
-    Numeric constants live in \texttt{vsss\_sim.config}.}
+    \caption{Physics design choices in the VSSS simulator.}
     \label{tab:physics_design}
     \small
     \begin{tabular}{p{0.22\linewidth}p{0.38\linewidth}p{0.34\linewidth}}
@@ -156,19 +183,19 @@ implement.
         \textbf{Choice} & \textbf{Mechanism} & \textbf{Rationale} \\
         \midrule
         Planar 2D engine &
-        State: ball $(x,y,v_x,v_y)$; robots $(x,y,\theta,v_x,v_y,\omega)$ &
+        State: ball $(\gls{pos_x},\gls{pos_y},\gls{vel_x},\gls{vel_y})_{\mathrm{ball}}$; robots $(\gls{pos_x},\gls{pos_y},\gls{heading},\gls{vel_x},\gls{vel_y},\gls{angular_velocity})_{\mathrm{robot}}$ &
         Matches top-down VSSS; enables batched array physics. \\
         \addlinespace
-        OBB robots &
-        Square footprint; circle–OBB for ball; SAT for robot–robot &
-        Avoids disk proxy errors at $7.5$\,cm scale. \\
+        Square rigid bodies &
+        Square footprint; circle–square for ball; SAT for robot–robot &
+        Avoids disk proxy errors at the robot's footprint scale. \\
         \addlinespace
         Sub-stepped integration &
-        $4\times$ substeps per $60$\,Hz control step &
+        $N_{\mathrm{sub}}$ substeps per $f_c$ control step &
         Reduces tunneling and stabilizes contacts at max wheel speed. \\
         \addlinespace
         Rate-limited wheels &
-        Slew cap $\approx 1\,g$ per sub-step on each wheel &
+        Slew cap \gls{slew_limit} per sub-step on each wheel &
         Models torque limits; smoother policy rollouts. \\
         \addlinespace
         Differential drive &
@@ -176,7 +203,7 @@ implement.
         Matches IEEE VSS hardware; action space is six wheel commands. \\
         \addlinespace
         Rolling ball friction &
-        Deceleration $\propto \mu_r g \,\Delta t_{\mathrm{sub}}$ &
+        Deceleration $\propto \gls{friction_coef}\, g \,\Delta t_{\mathrm{sub}}$ &
         Ball comes to rest without explicit spin state. \\
         \addlinespace
         Restitution on impact &
@@ -186,6 +213,27 @@ implement.
         Goals without terminal &
         Score event + kickoff reset; episode ends on step cap only &
         Aligns with continuous play; keeps \texttt{terminated}$=$\texttt{False}. \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\begin{table}[ht]
+    \centering
+    \caption{Configurable simulator parameters and the values used in this
+    work.  Field dimensions and robot footprint follow the competition
+    specification and are fixed.}
+    \label{tab:sim_params}
+    \begin{tabular}{llrl}
+        \toprule
+        \textbf{Symbol} & \textbf{Description} & \textbf{Value} & \textbf{Unit} \\
+        \midrule
+        \gls{control_freq}   & Control frequency                  & $60$          & Hz \\
+        \gls{num_substeps}   & Physics sub-steps per control step & $4$           & --- \\
+        \gls{wheel_base}     & Wheelbase                          & $53$          & mm \\
+        \gls{max_speed}      & Maximum robot linear speed         & $1.30$        & m/s \\
+        \gls{slew_limit}     & Wheel angular acceleration limit   & $9.81$        & m/s$^2$ \\
+        \gls{shaping_coef}   & Reward shaping coefficient         & $0.10$        & --- \\
+        \gls{crowd_penalty_coeff} & Crowding penalty coefficient     & $-0.02$       & --- \\
         \bottomrule
     \end{tabular}
 \end{table}
@@ -253,8 +301,8 @@ normalization applied to each group.
         \toprule
         \textbf{Indices} & \textbf{Content} & \textbf{Per element} \\
         \midrule
-        $[0\!:\!4]$  & ball               & $x, y, v_x, v_y$ (normalized) \\
-        $[4\!:\!46]$ & 6 robots $\times$ 7 & $x, y, \sin\theta, \cos\theta, v_x, v_y, \omega$ \\
+        $[0\!:\!4]$  & ball               & $\gls{pos_x}, \gls{pos_y}, \gls{vel_x}, \gls{vel_y}$ (normalized) \\
+        $[4\!:\!46]$ & 6 robots $\times$ 7 & $\gls{pos_x}, \gls{pos_y}, \sin\gls{heading}, \cos\gls{heading}, \gls{vel_x}, \gls{vel_y}, \gls{angular_velocity}$ \\
         \bottomrule
     \end{tabular}
 \end{table}
@@ -292,20 +340,20 @@ The reward is team-based and shared across the three allied robots, since they
 pursue a common objective.  At its core it is sparse:
 %
 \begin{equation}
-    r_t = g_t + \beta\,\Delta x^{b}_t,
+    r_t = g_t + \gls{shaping_coef}\,\Delta x^{b}_t,
     \label{eq:reward}
 \end{equation}
 %
 where $g_t \in \{+1, -1, 0\}$ is the goal signal (scoring, conceding, or
 neither), $\Delta x^{b}_t$ is the forward progress of the ball toward the
-opponent goal during the timestep, and $\beta$ is a small shaping coefficient.
+opponent goal during the timestep, and \gls{shaping_coef} is a small reward shaping coefficient.
 The shaping term scaffolds early learning, when goal events are too rare to
-provide useful gradient under a purely random policy.  The coefficient is
-chosen so that the maximum shaping contribution accumulated over an episode is
-strictly smaller than a single goal event; with $\beta = 0.10$ and a field
-length of $1.50\,\text{m}$, the total dense reward is bounded by
-$0.10 \times 1.50 = 0.15 < 1$, so the agent is never incentivized to shuttle
-the ball indefinitely instead of scoring.  Sharing a single team reward keeps
+provide useful gradient under a purely random policy.  The coefficient $\beta$
+is chosen so that $\gls{shaping_coef} \cdot L_f < 1$, where $L_f = 1.50\,\text{m}$ is the
+field length; this ensures the maximum shaping contribution over an episode is
+strictly smaller than a single goal event, so the agent is never incentivized
+to shuttle the ball indefinitely instead of scoring.  The value of $\gls{shaping_coef}$ used
+is given in Table~\ref{tab:sim_params}.  Sharing a single team reward keeps
 credit assignment simple at the cost of making the individual contribution of
 each robot harder to isolate; additional shaping terms for possession,
 positioning, and avoidance of self-blocking are left as tuning options for
@@ -316,7 +364,7 @@ TG-2.
 % ------------------------------------------------------------------
 
 The transition dynamics are encoded entirely in the simulator and are not made
-explicitly available to the agent.  The discount factor $\gamma \in [0, 1)$
+explicitly available to the agent.  The discount factor $\gls{discount_factor} \in [0, 1)$
 weights future reward against immediate reward; its value is treated as a
 training hyperparameter and reported with the results.
 
@@ -385,28 +433,21 @@ Advancement through the curriculum can be based on various criteria, such as a f
 
 Uniform episode initialization spends many simulator steps on situations that
 are either trivially solved or too chaotic to yield useful gradients.  The
-proposed sampler treats each initialized game situation as a replayable level
-and samples levels according to their estimated learning potential.  Together,
-the simulator and the sampler address orthogonal costs: the former increases
-raw transition throughput, the latter improves the informativeness of each
-transition.
+\gls{plr}-based sampler planned for TG-2 will address this by treating each
+game initialization as a replayable level and selecting levels according to
+their estimated learning potential, complementing the throughput gains of the
+simulator with improved transition informativeness.
 
-The sampler maintains a population of candidate \gls{vsss} scenarios, each
-defined by robot poses, ball state, velocities, and optional game context.
-During training, each scenario receives a priority derived from learning
-signals — primarily the magnitude of the value-prediction error on recent
-trajectories, optionally combined with policy entropy or recent improvement.
-Episodes are then initialized from a mixture of high-priority scenarios and
-exploratory samples, which prevents the agent from overfitting to a narrow set
-of situations.  The infrastructure for this already exists in the simulator:
-the pluggable initialization interface (Chapter~5) was designed to accept an
-external placement source, which is exactly the insertion point the sampler
-requires.
-
-For TG-1, the contribution is the sampler design and its integration with the
-simulator and the \gls{ppo} rollout interface.  TG-2 will evaluate whether the
-sampler improves sample efficiency relative to uniform initialization and to
-hand-designed curricula.
+The intended design maintains a population of candidate \gls{vsss} scenarios,
+each defined by robot poses, ball state, and velocities.  Each scenario
+receives a priority derived from the magnitude of the value-prediction error on
+recent rollouts; episodes are then initialized from a mixture of high-priority
+scenarios and exploratory samples to prevent the agent from overfitting to a
+narrow set of situations.  The simulator's initialization interface accepts an
+external placement source as a drop-in replacement for the fixed kickoff and
+random modes, which is the insertion point this sampler will occupy.  TG-2
+will evaluate whether the sampler improves sample efficiency relative to
+uniform initialization.
 
 % ==================================================================
 \section{Tooling and Infrastructure}
@@ -421,6 +462,11 @@ and policy checkpoints.  The primary engineering requirement for TG-1 is that
 the simulator be \emph{measurable}: throughput is reported as steps per second
 versus the number of parallel environments, and compared against a vectorized
 \gls{cpu} baseline, in Chapter~5.
+
+For rendering, the simulator uses Pygame as it is a lightweight library for 2D drawing making it well-suited for lightweight real-time visualization of
+simulation state without adding dependencies to the training path~\cite{pygame2024}.
+Pygame, in addition, is an open-source Python library, making it easy to use
+and distribute among different development environments.
 
 % ==================================================================
 \section{Scope and Discarded Alternatives}
@@ -450,7 +496,7 @@ limiting generality.
 \subsection{Existing GPU RL frameworks.}
 General accelerated simulators (Isaac Gym, Brax) target full 3D rigid-body
 dynamics, far heavier than \gls{vsss} needs. The domain is simple enough — 2D,
-differential drive, OBB collisions, static walls — that a purpose-built batched
+differential drive, box collisions, static walls — that a purpose-built batched
 kernel achieves higher throughput precisely because it computes less.
 
 \subsection{Wrapping the existing C++/ODE simulator.}
@@ -463,4 +509,4 @@ preserve the exact limitation the new simulator removes.
 Varying friction, latency, and noise for transfer robustness is sequenced rather
 than discarded: it serves neither throughput nor sample efficiency, and becomes
 relevant only once a competitive policy exists and the goal shifts to physical
-deployment (Chapter~6).
+deployment.

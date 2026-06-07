@@ -52,20 +52,23 @@ which the training methodology must address.
 \section{Differential-Drive Robot Model}
 % ------------------------------------------------------------------
 
-Each \gls{vsss} robot is modeled as a differential-drive body with two
-independently actuated wheels.  Let \gls{linear_velocity} be the desired
-linear velocity of the robot center, \gls{angular_velocity} the desired
-angular velocity, $L$ the distance between the wheels, and $d$ the wheel
-diameter.  A common kinematic mapping from body velocity to wheel angular
-velocities is:
+Each \gls{vsss} robot can be modeled as a differential-drive body with two
+independently actuated wheels.  A common kinematic mapping from body velocity
+to wheel angular velocities~\cite{franzoni2017} is:
 
 \begin{equation}
-    \omega_l = \frac{2v - L\omega}{d},
+    \gls{wheel_speed_left} = \frac{2\gls{linear_velocity} - \gls{wheel_base}\,\gls{angular_velocity}}{\gls{wheel_diameter}},
     \qquad
-    \omega_r = \frac{2v + L\omega}{d}.
+    \gls{wheel_speed_right} = \frac{2\gls{linear_velocity} + \gls{wheel_base}\,\gls{angular_velocity}}{\gls{wheel_diameter}},
     \label{eq:diff_drive}
 \end{equation}
 
+where \gls{linear_velocity} is the desired linear velocity of the robot
+center, \gls{angular_velocity} the desired angular velocity,
+\gls{wheel_base} the distance between the wheel contact points,
+\gls{wheel_diameter} the wheel diameter, and \gls{wheel_speed_left},
+\gls{wheel_speed_right} the resulting left and right wheel angular
+velocities.
 This mapping is important because it defines the interface between the policy
 and the simulator.  The policy may output wheel speeds directly, or it may
 output higher-level $(v,\omega)$ commands that are converted into wheel
@@ -74,10 +77,10 @@ to the hardware interface, while body-velocity actions can simplify learning
 by exposing a more structured control space.
 
 In the VSSS literature, both conventions have been used.
-\citeauthor{tg_thiago} and subsequent ITAndroids works adopt body
+\cite{tg_thiago} and subsequent ITAndroids works adopt body
 velocities as the policy output, converting them to wheel commands via
 Equation~\eqref{eq:diff_drive} before dispatching to the simulator.
-\citeauthor{tg_thay} instead parameterize actions directly as a tuple of
+\cite{tg_thay} instead parameterize actions directly as a tuple of
 left and right wheel speeds, arguing that the end-to-end formulation reduces
 the gap between simulated commands and actual hardware actuation.  In either
 case the robot is treated as a rigid cube that moves according to
@@ -191,9 +194,9 @@ original monographs.
         \textbf{Steps/s} \\
         \midrule
         \cite{tg_thay} &
-            1 & ${\approx}63$\tnote{a} \\
+            1 & $63$\tnote{a} \\
         \cite{master_thiago} &
-            4 & ${\approx}94$\tnote{b} \\
+            4 & $378$\tnote{b} \\
         \bottomrule
     \end{tabular}
 
@@ -205,7 +208,7 @@ original monographs.
         independent runs (one simulator instance per agent).
         $5{\times}10^{6}\,/\,(21.47\times3600)\approx64.7$\,steps/s; the
         three LFG subtasks yield consistent estimates of $62$--$65$\,steps/s,
-        rounded here to ${\approx}63$\,steps/s.
+        rounded here to approximately $63$\,steps/s.
 
         \medskip
         \textsuperscript{b}~Derived from Section~6 of~\cite{master_thiago}:
@@ -214,14 +217,14 @@ original monographs.
         processes in parallel.  Interpreting the 34\,M budget as per-agent
         gives $34{\times}10^{6}\,/\,(25\times3600)\approx378$\,steps/s per
         agent; dividing by the 4 parallel simulator instances per agent
-        yields ${\approx}94$\,steps/s per instance.
+        yields approximately $94$\,steps/s per instance.
     \end{minipage}
 \end{table}
 
 The consequences become apparent at scale.  \textcite{brandao2022} managed
 to run 200 parallel instances of a MuJoCo-based VSSS simulation for their
-multi-agent PPO training — a significant improvement — but even so, the
-simulation ran on CPU, with the physics engine unable to exploit the massive
+multi-agent PPO training, a significant improvement, but even so, the
+simulation ran on CPU, with the physics engine unable to exploit the
 parallelism available on modern hardware accelerators.  In the broader robot
 soccer literature, \textcite{scaling_marl_2d} demonstrated that a purpose-built
 2D environment whose physics is expressed as simple, vectorizable operations

@@ -36,8 +36,8 @@ A different answer matured over the past decade.  Instead of prescribing
 behavior, \gls{drl} lets an agent uncover it, by repeatedly acting in an
 environment and adjusting toward whatever earns reward.  What makes the approach
 compelling is less any single result than the steadily widening class of
-problems it can absorb --- and the way those problems can be ordered by how
-closely they resemble the physical world a robot inhabits.
+problems it can absorb, as well as the way those problems can be ordered by
+how closely they resemble the physical world a robot inhabits.
 
 At the structured extreme sit fully observable, turn-based games with discrete
 moves.  Go is the canonical example: a player sees the entire board, acts only
@@ -54,10 +54,10 @@ reference~\cite{silver2017mastering}.
 Relaxing those assumptions one at a time brings the setting closer to robotics.
 Let many agents act simultaneously, in continuous time, while hiding part of the
 state from each of them, and the difficulty changes in kind rather than degree.
-AlphaStar reached this regime in StarCraft~II, where an agent must interleave
-long-horizon economic planning with split-second control over individual units,
-select among roughly $10^{26}$ actions at every step, and do so without ever
-observing the full board~\cite{starcraft_marl}.  Tellingly, its robustness did
+AlphaStar reached this regime in StarCraft~II (Figure~\ref{fig:starcraft_2_game}),
+where an agent must interleave long-horizon economic planning with split-second
+control over individual units, select among roughly $10^{26}$ actions at every
+step, and do so without ever observing the full board~\cite{starcraft_marl}.  Tellingly, its robustness did
 not come from optimizing against a single adversary but from training inside a
 \emph{league} of continually evolving rivals, so that no one exploitable
 strategy could survive.
@@ -72,11 +72,12 @@ strategy could survive.
 What every one of these results leaves untouched, however, is the body.  A
 simulated agent issues an action and the action simply happens; a physical one
 must produce torques that move mass, manage balance and contact, and recover
-when the world reacts in ways no rule foresaw.  This last frontier --- continuous
-sensorimotor control on real hardware --- is where progress is now most striking.
-Fittingly for a World Cup year, Boston Dynamics has recently demonstrated its
-Atlas humanoid performing soccer skills that demand exactly this kind of
-dynamic, whole-body coordination on real hardware.
+when the world reacts in ways no rule foresaw.
+This last frontier, continuous sensorimotor control on real hardware, is where
+progress is now most striking.
+Boston Dynamics has recently demonstrated its Atlas humanoid performing soccer
+skills that require dynamic, whole-body coordination on real hardware
+(Figure~\ref{fig:atlas_rabona}).
 
 \begin{figure}[h]
     \centering
@@ -87,13 +88,12 @@ dynamic, whole-body coordination on real hardware.
     \label{fig:atlas_rabona}
 \end{figure}
 
-Robot soccer occupies a particularly attractive position in this landscape.
-It draws together, in one compact and well-defined domain, the threads pulled
-apart above: continuous control, real-time decision-making, multi-agent
-cooperation, and adversarial competition.  It is cheap enough to simulate at
-scale, yet the underlying decision problem remains genuinely hard --- which is
-precisely what makes it a demanding benchmark for techniques whose ultimate
-target is the physical world.
+Robot soccer draws together, in one compact and well-defined domain, the
+challenges discussed above: continuous control, real-time decision-making,
+multi-agent cooperation, and adversarial competition.  It is cheap enough to
+simulate at scale, yet the underlying decision problem remains hard, which
+makes it a useful benchmark for techniques whose ultimate target is the
+physical world.
 
 % ------------------------------------------------------------------
 \section{Contextualization}
@@ -151,32 +151,27 @@ learning control and strategy, and demonstrating that the resulting policy
 could defeat the best available heuristic opponent with an 84\% win
 rate.
 
-This thesis is the natural next step in that line of work.  Where \textcite{brandao2022}
-showed that 3v3 multi-agent learning is feasible, the
-experiments there were constrained by the cost of collecting enough useful
-experience.  The central question this work addresses is what becomes possible
-when training can both generate more transitions per wall-clock second and make
-better use of the situations it samples.
+This thesis continues that line of work.  \textcite{brandao2022} showed
+that 3v3 multi-agent learning is feasible, but the experiments there were
+constrained by the cost of collecting enough useful experience.  The central
+question addressed here is what becomes possible when training can both
+generate more transitions per wall-clock second and make better use of the
+situations it samples.
 
 % ------------------------------------------------------------------
 \section{Objective}
 % ------------------------------------------------------------------
 
-The objective of this work is to reduce one of the main practical barriers that
-still separates reinforcement-learning research in \gls{vsss} from routine use
-inside the ITAndroids development cycle.  The team already has a sequence of
-works showing that learned policies can perform meaningful soccer behaviors,
-from isolated skills to complete 3v3 control.  However, training and evaluating
-these policies remains expensive: each experiment requires a large number of
-simulated interactions, and the existing simulator architecture limits how
-quickly those interactions can be produced.
+The team already has a sequence of works showing that learned policies can
+perform meaningful 3v3 soccer behaviors.  However, training and evaluating
+these policies remains expensive: the existing simulator architecture limits
+how many interactions can be produced per unit time.  This cost is one of the main
+practical barrier that separate \gls{rl} research in \gls{vsss} from routine
+use inside the ITAndroids development cycle.
 
-This work therefore concentrates on the infrastructure needed to make such a
-strategy learnable.  An accelerated \gls{vsss} simulator is developed and
-integrated into an end-to-end \gls{ppo} training loop for a centralized joint
-team policy.  The resulting baseline allows the simulator to be measured in a
-real learning setting and establishes the foundations for the sample-selection
-and multi-agent extensions that follow in TG-2.
+The objective of TG-1 is to address the throughput barrier by building the
+simulation and training infrastructure that makes large-scale \gls{rl}
+practical for 3v3 \gls{vsss}. TG-2 will build on the infrastructure established here.
 
 % ------------------------------------------------------------------
 \section{Literature Review}
@@ -212,8 +207,8 @@ the self-play design considered in this work.
 
 \subsection{Reinforcement Learning in IEEE VSSS}
 
-Within the \gls{vsss} category specifically, a focused body of work — much of it
-produced within the ITAndroids team — has progressively expanded the role of
+Within the \gls{vsss} category specifically, a focused body of work, much of it
+produced within the ITAndroids team, has progressively expanded the role of
 reinforcement learning from isolated skills toward full-team play.
 
 \textcite{medeiros2020} introduced reinforcement learning to \gls{vsss} strategy
@@ -282,18 +277,29 @@ of training cost.  The \gls{vsss} works above run physics on the \gls{cpu} and
 communicate with the learner across a process boundary, an architecture whose
 throughput scales poorly with the number of parallel environments.
 
-A recent direction addresses this by relocating the environment onto the
-hardware accelerator.  Frameworks such as Brax express rigid-body physics as
-differentiable, batched array operations that execute on \gls{gpu}, allowing
-thousands of environments to be stepped simultaneously and bringing the
-simulator and the learner onto the same device~\cite{brax2021}.  In the robot
-soccer context specifically, \textcite{scaling_marl_2d} built a custom 2D environment
-whose physics is expressed as simple vectorizable operations and reported
-throughput one to two orders of magnitude higher than a wrapped general-purpose
-simulator for the same task, demonstrating that a purpose-built
-batched environment can dramatically reduce training time precisely because it
-avoids the overhead of a general engine.  The simulator developed in this work
-follows this paradigm, applying it to the \gls{vsss} domain.
+Two broad approaches have emerged to remove this bottleneck.  The first places
+the physics engine directly on the GPU: Isaac Gym~\cite{makoviychuk2021isaacgym}
+and its successor Isaac Lab run a PhysX-based rigid-body simulator on the GPU,
+exposing simulation state as tensors consumed by the policy without any CPU
+detour, though the stack is tied to Linux and NVIDIA hardware.
+MJX~\cite{zakka2025mujocoplayground}, a just-in-time-compiled reimplementation
+of MuJoCo, brings that contact-rich physics engine into a batched regime.
+Brax~\cite{freeman2021brax} implements a differentiable rigid-body engine
+entirely in JAX.  In the robot soccer context,
+\textcite{scaling_marl_2d} built a custom 2D environment whose physics consists
+of simple vectorizable operations and reported throughput one to two orders of
+magnitude higher than MuJoCo-backed alternatives, demonstrating that a
+purpose-built batched environment reduces training time by avoiding the overhead
+of a general engine.
+
+The second approach keeps the full training loop on the same accelerator as the
+simulator.  Libraries such as RLax~\cite{deepmind2020rlax} and
+Stoix~\cite{toledo2024stoix} provide JAX-native RL primitives and compiled
+\gls{ppo} implementations; rsl-rl~\cite{rslrl} serves as the PyTorch companion
+to the Isaac stack.
+
+The simulator developed in this work follows this paradigm, applying batched
+JAX physics to the \gls{vsss} domain.
 
 \subsection{Prioritized Experience and Scenario Selection}
 
@@ -323,43 +329,23 @@ situations should the current policy experience next?
 \label{sec:contributions}
 % ------------------------------------------------------------------
 
-This work is organized around two costs that limit large-scale reinforcement
-learning in \gls{vsss}: throughput, or how many fresh transitions can be
-produced per second, and sample efficiency, or how informative those transitions
-are for the current policy.  The first cost is addressed directly by moving the
-simulator onto the accelerator.  The second is addressed in TG-1 by establishing
-the training baseline and initialization interface on which the
-prioritized-level-replay sampler will operate in TG-2.
+The main TG-1 contribution is a JAX-based, GPU-parallel simulator
+for 3v3 \gls{vsss}, built
+around batched physics and accelerator-friendly rollout loops.  The
+simulator is designed to step thousands of independent game instances
+simultaneously on a single device, eliminating the inter-process
+communication overhead present in other existing \gls{vsss} training
+pipelines.
 
-The two main TG-1 contributions are therefore:
+One side TG-1 contribution is a policy-training baseline: a centralized joint policy
+trained from scratch to control a 3v3 \gls{vsss} team using the new
+simulator, with learning curves showing that the infrastructure supports
+reliable policy improvement and characterizing the role of initialization
+strategy in the learning process.  These results motivate the
+\gls{plr} sampler and provide the comparison point for its TG-2 evaluation.
 
-\begin{itemize}
-    \item A JAX-based, GPU-parallel simulator for 3v3 \gls{vsss}, built
-    around batched physics and accelerator-friendly rollout loops.  The
-    simulator is designed to step thousands of independent game instances
-    simultaneously on a single device, eliminating the inter-process
-    communication overhead present in all existing \gls{vsss} training
-    pipelines.
-
-    \item A policy-training baseline for sample-efficient extensions: a
-    centralized joint policy
-    trained from scratch to control a 3v3 \gls{vsss} team using the new
-    simulator, with learning curves showing that the infrastructure supports
-    reliable policy improvement and characterizing the role of initialization
-    strategy in the learning process.  These results motivate the
-    \gls{plr} sampler and provide the comparison point for its TG-2 evaluation.
-\end{itemize}
-
-The TG-1 policy is deliberately centralized: a single network observes the
-global game state and commands all three allied robots simultaneously.  This
-controlled baseline isolates the throughput and sample-selection contributions
-from the additional complexity of per-robot decentralization, full self-play,
-and symmetry-aware data augmentation.
-
-This work also contributes to the relatively limited literature on applying
-deep \gls{rl} to full-team decision-making and control in the IEEE \gls{vsss}
-league, and aligns with the ITAndroids team's mission of advancing and
-disseminating knowledge in robotics and artificial intelligence.
+This work also extends the body of literature on applying deep \gls{rl} to
+full-team decision-making and control in the IEEE \gls{vsss} league.
 
 % ------------------------------------------------------------------
 \section{Outline of this Work}

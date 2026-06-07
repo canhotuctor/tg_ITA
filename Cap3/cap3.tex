@@ -120,26 +120,27 @@ to continuous-control domains.
 Reinforcement learning formalizes sequential decision-making as interaction
 between an agent and an environment~\cite{sutton2018reinforcement}.  In the
 Markov decision process (\gls{mdp}) formulation, the environment is described
-by the tuple $\langle \mathcal{S}, \mathcal{A}, \mathcal{P}, R, \gamma
-\rangle$, where $\mathcal{S}$ is the state space, $\mathcal{A}$ is the action
+by the tuple $\langle \gls{state_space}, \gls{action_space}, \mathcal{P}, R, \gls{discount_factor}
+\rangle$, where \gls{state_space} is the state space, \gls{action_space} is the action
 space, $\mathcal{P}(s_{t+1} \mid s_t, a_t)$ is the transition distribution,
-$R$ is the reward function, and $\gamma \in [0,1]$ is the discount factor.
+$R$ is the reward function, and \gls{discount_factor} $\in [0,1]$ is the discount factor.
 
-The agent acts according to a policy $\pi_\theta$ parameterized by $\theta$.
+The agent acts according to a policy \gls{policy} parameterized by $\theta$.
 Its objective is to maximize the expected discounted return:
 %
 \begin{equation}
     J(\theta) = \mathbb{E}_{\pi_\theta}\!\left[\sum_{t=0}^{T} \gamma^t
-    r_t\right].
+    r_t\right],
 \end{equation}
 %
-Value functions summarize long-term quality.  The state-value function
-$V^\pi(s)$ gives the expected return from state $s$ under $\pi$, and the
+where $r_t \in \mathbb{R}$ is the reward received at step $t$ and $T$ is the
+episode horizon.  Value functions summarize long-term quality.  The state-value function
+\gls{value_function} gives the expected return from state $s$ under $\pi$, and the
 action-value function $Q^\pi(s,a)$ conditions additionally on taking action
 $a$.  The advantage function,
 %
 \begin{equation}
-    A^\pi(s,a) = Q^\pi(s,a) - V^\pi(s),
+    \gls{advantage_function} = Q^\pi(s,a) - V^\pi(s),
 \end{equation}
 %
 measures how much better or worse a particular action is relative to the
@@ -173,9 +174,10 @@ compute $\hat{A}_t$ via Generalized Advantage Estimation
     \label{eq:gae}
 \end{equation}
 %
-where $\lambda \in [0,1]$ trades variance against bias: $\lambda \to 0$
-relies heavily on the critic estimate, and $\lambda \to 1$ relies more on
-actual returns.
+where $\delta_t = r_t + \gamma V_w(s_{t+1}) - V_w(s_t)$ is the one-step
+temporal-difference (TD) error, and $\lambda \in [0,1]$ trades variance
+against bias: $\lambda \to 0$ relies heavily on the critic estimate, and
+$\lambda \to 1$ relies more on actual returns.
 
 \gls{ppo}~\cite{schulman2017ppo} extends the actor-critic framework with a
 constraint that prevents destructively large policy updates.  It defines the
@@ -218,9 +220,9 @@ and competent behavior, a policy initialized at random may never encounter
 enough informative signal to make progress.  A curriculum provides a ramp that
 keeps the task at a difficulty where learning can occur.
 
-For \gls{vsss}, the final objective — winning 3v3 matches — is far too complex
+For \gls{vsss}, the final objective (winning 3v3 matches) is far too complex
 for a randomly-initialized policy to explore productively.  A staged approach
-addresses this: allied robots first practice ball conduction and basic
+may address this: allied robots first practice ball conduction and basic
 positioning without any opposition, then face opponents only once those
 sub-skills are established.
 
@@ -236,7 +238,7 @@ be either too easy (the agent already solves them reliably) or too hard
 (the agent cannot yet extract any useful gradient).  The most informative
 situations are those at the boundary of current competence.
 
-After each episode on level $l_i$, \gls{plr} computes a score
+After each episode of length $T$ on level $l_i$, \gls{plr} computes a score
 %
 \begin{equation}
     S_i = \frac{1}{T}\sum_{t=0}^{T}\bigl|\hat{A}_t^{\mathrm{GAE}}\bigr|,
@@ -281,7 +283,7 @@ becomes harder as the agent improves, creating a natural difficulty curriculum.
 However, training exclusively against the latest version of the policy can lead
 to \emph{strategy collapse}: the agent discovers a local best-response that
 dominates the current opponent but is easily exploited by a broader range of
-strategies.  Fictitious self-play~\cite{brown1951fsp} mitigates this by playing
+strategies.  Fictitious self-play~\cite{brown1951fp} mitigates this by playing
 against a mixture over all historical policies, with convergence guarantees for
 two-player zero-sum games.  In practice, emphasizing more recent opponents
 while retaining some probability on older ones achieves a good balance between
@@ -326,27 +328,44 @@ Both forms of symmetry are treated as first-class design choices in the
 training methodology rather than as optional post-processing.
 
 % ------------------------------------------------------------------
-\section{High-Throughput, GPU-Accelerated Simulation}
+\section{Hardware-Accelerated Simulation}
 % ------------------------------------------------------------------
 
-On-policy algorithms like \gls{ppo} repeatedly collect fresh rollouts and
-discard them after a single round of updates.  The number of environment steps
-per wall-clock second is therefore a direct multiplier on how much training
-progress can be made in a given time budget.  When the simulator is the
-bottleneck, improvements to the learning algorithm yield diminishing returns.
+The conventional training pipeline keeps the environment on the \gls{cpu} and
+uses the \gls{gpu} only for the policy network, so every environment step
+incurs a round trip across the host--device boundary while the simulation
+itself gains nothing from the accelerator's parallelism.  Closing this gap
+requires both the simulator and the learning algorithm to reside on the same
+device.
 
 \gls{jax}~\cite{jax2018github} provides three complementary transformations
 that make GPU-parallel simulation practical.  \texttt{jit} compiles a
-numerical function to native code, eliminating Python overhead.  \texttt{vmap}
-lifts a single-environment step into a vectorized step over a batch of
-environments, enabling thousands of independent games to advance in a single
-device call.  \texttt{scan} implements a fixed-length loop (a rollout horizon)
-as a single compiled operation, avoiding repeated Python-level dispatch.
-Because \gls{jax} programs are purely functional, state is passed explicitly
-with no hidden side-effects, so the entire collect-and-update loop runs on the
-accelerator without data copies between host and device.
+numerical function to native accelerator code ahead of execution, eliminating
+Python-level dispatch overhead.  \texttt{vmap} lifts a single-environment step
+into a vectorized step over a batch of environments, enabling thousands of
+independent games to advance in a single device call.  \texttt{scan} fuses a
+fixed-horizon rollout into one compiled operation rather than an interpreted
+loop.  Because \gls{jax} programs are purely functional, state is threaded
+explicitly with no hidden side-effects, so the full collect-and-update loop
+resides on the accelerator without host--device copies.  The design patterns
+for exploiting these capabilities at scale were systematized in the Anakin and
+Sebulba ``podracer'' architectures~\cite{hessel2021podracer}: Anakin compiles
+acting and learning into one device-resident graph, while Sebulba splits actors
+from learners and is better suited when the environment is not itself written
+in \gls{jax}.
 
-For \gls{vsss}, the physics model — rigid-body kinematics, elastic wall
-collisions, and a friction model for ball--floor contact — is simple enough
-to implement as differentiable array operations without any approximation that
-would matter for policy learning.
+These properties are only useful if the learning algorithm shares the same
+device.  Stable-Baselines3 (\gls{sb3}) ~\cite{raffin2021sb3} is a widely used \gls{ppo}
+reference implementation built on PyTorch; coupling it to a \gls{jax}
+simulator reintroduces a framework boundary and a host-side training loop,
+restoring the same per-step transfer overhead the batched simulator removes.
+A fully \gls{jax}-resident training path, such as those provided by
+RLax~\cite{deepmind2020rlax} and Stoix~\cite{toledo2024stoix}, avoids this
+boundary entirely.
+
+For \gls{vsss}, the physics model (rigid-body kinematics, elastic wall
+collisions, and a friction model for ball--floor contact) is simple enough to
+implement as differentiable array operations without any approximation that
+would matter for policy learning.  Expressing the environment in \gls{jax}
+therefore places it in the fully compiled regime, where simulation, action
+selection, and the policy update run as one device-resident program.

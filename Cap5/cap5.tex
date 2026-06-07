@@ -21,9 +21,11 @@ the experiments that this infrastructure was built to enable.
 % ------------------------------------------------------------------
 
 Throughput is reported as environment steps per second as a function of the
-execution path and the number of parallel environments.  All measurements are
-taken after \gls{jit} warm-up, so that compilation time is separated from
-steady-state rollout speed.  Two hardware configurations were benchmarked,
+execution path and the number of parallel environments.  All measurements are taken after \gls{jit} warm-up (the initial call to
+a \texttt{jit}-compiled function that triggers XLA ahead-of-time compilation,
+followed by a short sequence of additional calls to drain JAX's asynchronous
+execution queue), so that this one-time compilation cost is excluded from the
+steady-state throughput figures.  Two hardware configurations were benchmarked,
 reflecting the dual development and training setup described in Chapter~4: a
 MacBook with an Apple M4 Pro chip, used for CPU execution during development,
 and an Ubuntu~22.04 workstation with an NVIDIA RTX~3060 GPU, used for
@@ -37,9 +39,8 @@ This measurement uses the raw JAX stepping kernel
 policy inference, rollout storage, or gradient updates.  No directly comparable
 baseline is available in prior VSSS work, because the ODE-based simulators
 discussed in Chapter~2 report training duration rather than raw physics-kernel
-throughput.  The purpose of this benchmark is therefore not a baseline
-comparison, but to show the scale unlocked by expressing the VSSS dynamics as
-batched array operations.
+throughput.  This benchmark therefore measures the throughput ceiling achievable by
+expressing the VSSS dynamics as batched array operations.
 
 Table~\ref{tab:throughput_physics} reports the full measured raw physics
 throughput on the Apple~M4~Pro as the number of parallel environments is swept
@@ -55,8 +56,8 @@ at $256$ parallel environments.  The JIT compilation cost is a one-time
 $\sim\!0.2$\,s and is excluded from the steady-state numbers.  On the
 RTX~3060, the same batched execution model scales to far larger batches and
 reaches a peak of approximately $5.4 \times 10^{6}$ steps per second at $4096$
-parallel environments --- more than an order of magnitude above the CPU
-ceiling.  Beyond that batch size the throughput recedes (to
+parallel environments, more than an order of magnitude above the CPU ceiling.
+Beyond that batch size the throughput recedes (to
 $\sim\!4.0 \times 10^{6}$ at $65536$) as the working set saturates the GPU's
 memory bandwidth.  Table~\ref{tab:throughput_physics_rtx} reports the full
 sweep up to $65536$ parallel environments.
@@ -68,13 +69,14 @@ sweep up to $65536$ parallel environments.
     ($\mathrm{jit}(\mathrm{vmap}(\texttt{step}))$) on the Apple~M4~Pro, after
     JIT warm-up, versus the number of parallel environments.  Latency columns
     are the per-call cost of one batched step ($T/n_{\mathrm{steps}}$, with the
-    top~5\% of samples trimmed); throughput is
-    $n_{\mathrm{envs}}\,n_{\mathrm{steps}}/T$.  These measurements isolate the
-    batched stepping kernel and do not include learner overhead.}
+    top~5 and bottom~5\% of samples trimmed for outlier elimination); throughput is
+    $n_{\mathrm{envs}}\,n_{\mathrm{steps}}/T$. These measurements isolate the
+    batched stepping kernel and do not include learner overhead.
+    The used $n_{\mathrm{steps}}$ for this benchmark was 1000.}
     \label{tab:throughput_physics}
     \begin{tabular}{rrrrrr}
         \toprule
-        \textbf{\texttt{num\_envs}} & \textbf{JIT compile} &
+        \textbf{$n_{\mathrm{envs}}$} & \textbf{JIT compile} &
         \textbf{Latency (mean$\pm$std)} & \textbf{Median} & \textbf{p95} &
         \textbf{Steps/s} \\
          & (ms) & ($\mu$s) & ($\mu$s) & ($\mu$s) & \\
@@ -97,11 +99,12 @@ sweep up to $65536$ parallel environments.
     physics throughput of the JAX stepping kernel
     ($\mathrm{jit}(\mathrm{vmap}(\texttt{step}))$) on the NVIDIA~RTX~3060, after
     JIT warm-up, swept to the much larger batch sizes the GPU can sustain.
-    Columns mirror Table~\ref{tab:throughput_physics}.}
+    Columns mirror Table~\ref{tab:throughput_physics}.
+    The used $n_{\mathrm{steps}}$ for this benchmark was 1000.}
     \label{tab:throughput_physics_rtx}
     \begin{tabular}{rrrrrr}
         \toprule
-        \textbf{\texttt{num\_envs}} & \textbf{JIT compile} &
+        \textbf{$n_{\mathrm{envs}}$} & \textbf{JIT compile} &
         \textbf{Latency (mean$\pm$std)} & \textbf{Median} & \textbf{p95} &
         \textbf{Steps/s} \\
          & (ms) & ($\mu$s) & ($\mu$s) & ($\mu$s) & \\
@@ -139,8 +142,8 @@ Chapter~2, Table~\ref{tab:legacy_throughput}, because both quantities describe
 environment steps delivered to an RL training loop.
 
 Table~\ref{tab:throughput_wrapper} reports the throughput of the
-\texttt{VSSVecEnv} wrapper alone --- the execution path that an RL library
-actually drives --- across the same batch sweep.  Unlike the raw kernel, each
+\texttt{VSSVecEnv} wrapper alone (the execution path that an RL library
+actually drives) across the same batch sweep.  Unlike the raw kernel, each
 step here crosses the Python and Gymnasium boundary and converts between JAX
 and NumPy arrays, so the wrapper recovers only a fraction of the physics
 ceiling: about $5\%$ at a single environment, rising to $79\%$ at $1024$
@@ -151,7 +154,7 @@ the wrapper sustains $1.6 \times 10^{5}$ steps per second.
     \centering
     \caption[\texttt{VSSVecEnv} wrapper throughput (Apple~M4~Pro).]{Throughput
     of the Gymnasium-compatible \texttt{VSSVecEnv} wrapper
-    on the Apple~M4~Pro --- the path seen by RL libraries.  Every step crosses
+    on the Apple~M4~Pro, the path seen by RL libraries.  Every step crosses
     the Python/Gymnasium boundary and converts between JAX and NumPy arrays.
     Latency columns are per batched step (top~5\% trimmed); the final column is
     the fraction of the raw physics ceiling
@@ -159,7 +162,7 @@ the wrapper sustains $1.6 \times 10^{5}$ steps per second.
     \label{tab:throughput_wrapper}
     \begin{tabular}{rrrrrr}
         \toprule
-        \textbf{\texttt{num\_envs}} &
+        \textbf{$n_{\mathrm{envs}}$} &
         \textbf{Latency (mean$\pm$std)} & \textbf{Median} & \textbf{p95} &
         \textbf{Steps/s} & \textbf{Frac.\ of ceiling} \\
          & ($\mu$s) & ($\mu$s) & ($\mu$s) & & \\
@@ -182,8 +185,8 @@ device-resident JAX state and the NumPy arrays handed to the learner, which is
 an order of magnitude larger than the CPU wrapper's overhead and dwarfs the
 sub-millisecond GPU kernel at every batch size below $4096$.  As a result the
 wrapper recovers only about $6\%$ of the GPU physics ceiling up to $1024$
-environments, and even at $65536$ environments --- where it sustains its peak
-of $\sim\!2.4 \times 10^{6}$ steps per second --- it reaches only $59\%$ of the
+environments, and even at $65536$ environments (where it sustains its peak
+of $\sim\!2.4 \times 10^{6}$ steps per second) it reaches only $59\%$ of the
 raw kernel.  Table~\ref{tab:throughput_wrapper_rtx} reports the full sweep.
 
 \begin{table}[ht]
@@ -197,7 +200,7 @@ raw kernel.  Table~\ref{tab:throughput_wrapper_rtx} reports the full sweep.
     \label{tab:throughput_wrapper_rtx}
     \begin{tabular}{rrrrrr}
         \toprule
-        \textbf{\texttt{num\_envs}} &
+        \textbf{$n_{\mathrm{envs}}$} &
         \textbf{Latency (mean$\pm$std)} & \textbf{Median} & \textbf{p95} &
         \textbf{Steps/s} & \textbf{Frac.\ of ceiling} \\
          & ($\mu$s) & ($\mu$s) & ($\mu$s) & & \\
@@ -238,7 +241,7 @@ grows linearly with the number of environments.
     \label{tab:wrapper_overhead}
     \begin{tabular}{rrrr}
         \toprule
-        \textbf{\texttt{num\_envs}} & \textbf{Kernel median} &
+        \textbf{$n_{\mathrm{envs}}$} & \textbf{Kernel median} &
         \textbf{Wrapper median} & \textbf{Overhead} \\
          & ($\mu$s) & ($\mu$s) & ($\mu$s) \\
         \midrule
@@ -260,44 +263,39 @@ grows linearly with the number of environments.
     comparison between the prior ODE-based
     ITAndroids baselines and the current simulator stack.  Baseline values are
     derived in Table~\ref{tab:legacy_throughput}; new measurements are taken
-    after JIT warm-up.  The full-cycle row uses the fastest measured
+    after JIT warm-up. All rows consider the fastest measured
     configuration (PPO minibatch $4096$); see Table~\ref{tab:ppo_pergen} for the
-    full sweep.}
+    full sweep. The per env. steps/s column is calculated by dividing the total steps per second by the number of environments.}
     \label{tab:throughput_training}
-    \begin{tabular}{llrr}
+    \begin{tabular}{llrrr}
         \toprule
-        \textbf{System} & \textbf{Training path} &
-        \textbf{\texttt{num\_envs}} & \textbf{Steps/s} \\
+        \textbf{System} &
+        \textbf{$n_{\mathrm{envs}}$} & \textbf{$steps\cdot s^{-1}$} & \textbf{$steps\cdot s^{-1}\cdot {\mathrm{env}}^{-1}$} \\
         \midrule
-        ODE baseline~\cite{tg_thay} &
-            ZeroMQ socket IPC & 1 & ${\approx}63$ \\
-        ODE baseline~\cite{master_thiago} &
-            merged process with gRPC bridge & 1 & ${\approx}94$ \\
-        Apple M4 Pro &
-            \texttt{VSSVecEnv} wrapper only & 256 &
-            $\sim 1.6 \times 10^{5}$ \\
-        Apple M4 Pro &
-            Full SB3 \gls{ppo} cycle & 256 &
-            $\sim 4.9 \times 10^{4}$ \\
-        NVIDIA RTX~3060 &
-            \texttt{VSSVecEnv} wrapper only & 65536 &
-            $\sim 2.4 \times 10^{6}$ \\
-        NVIDIA RTX~3060 &
-            Full SB3 \gls{ppo} cycle & 65536 &
-            $\sim 5.8 \times 10^{4}$ \\
+        baseline 1~\cite{tg_thay} &
+        1 & $63$ & $63$ \\
+        baseline 2~\cite{master_thiago} &
+        4 & $378$ & $94$ \\
+        \midrule
+        Apple M4 Pro & 8 & $8,837$ & $\mathbf{1,105}$ \\
+        Apple M4 Pro & 256 & $\mathbf{49,285}$ & $193$ \\
+        NVIDIA RTX~3060 & 8 & $1,126$ & $141$ \\
+        NVIDIA RTX~3060 & 65536 & $\mathbf{57,927}$ & $0.88$ \\
         \bottomrule
     \end{tabular}
 \end{table}
 
-The comparison separates two effects.  First, even the current wrapped
-environment delivers orders of magnitude more environment steps per second than
-the prior single-instance ODE training setup: approximately
+Table~\ref{tab:throughput_training} collects the headline numbers for direct
+comparison against the ODE baselines.  The comparison separates two effects.
+First, even the current wrapped environment delivers orders of magnitude more
+environment steps per second than the prior single-instance ODE training setup: approximately
 $1.6 \times 10^{5}$ steps per second on the M4 Pro wrapper path and up to
 $2.4 \times 10^{6}$ on the RTX~3060 wrapper path at the largest batch, compared
 with ${\approx}63$--${\approx}94$ steps per second per simulator instance in
 the legacy systems.  Second, when the full \gls{ppo} cycle is included,
 end-to-end throughput depends strongly on the number of parallel environments
-and the PPO minibatch size: as detailed in Tables~\ref{tab:ppo_pergen}
+and the PPO minibatch size (the number of transitions processed per gradient
+step during the update phase. Referred to as the \texttt{batch\_size} in the SB3 documentation \cite{raffin2021sb3}): as detailed in Tables~\ref{tab:ppo_pergen}
 and~\ref{tab:ppo_pergen_rtx}, on the M4 Pro it ranges from
 $\sim\!1.1 \times 10^{3}$ steps per second for a single environment up to
 $\sim\!4.9 \times 10^{4}$ steps per second at $256$ environments with the
@@ -305,16 +303,16 @@ largest minibatch.  The RTX~3060 is slower at every batch size the M4 Pro was
 tested at, because the SB3 learner forces a host round trip on every step that
 masks the GPU's huge physics advantage; only by pushing to $65536$ environments
 does it reach a peak of $\sim\!5.8 \times 10^{4}$ steps per second, modestly
-above the M4 Pro.  Even the fastest of these configurations is still well above
-the Chapter~2 baseline --- between two and three orders of magnitude --- but
-remains almost two orders of magnitude below the raw simulator ceiling.
+above the M4 Pro.  Even the fastest of these configurations is still well above the Chapter~2
+baseline by two to three orders of magnitude, yet remains almost two orders of
+magnitude below the raw simulator ceiling.
 
 Table~\ref{tab:ppo_pergen} breaks the end-to-end cost down per generation,
 separating the rollout phase (environment stepping and policy inference) from
 the PPO update phase (PyTorch gradient steps on CPU).  Two patterns are
 visible.  The rollout time per generation is largely independent of the number
-of environments --- the batched simulator absorbs the extra environments
-almost for free --- whereas the update time grows with both the minibatch size
+of environments (the batched simulator absorbs the extra environments almost
+for free), whereas the update time grows with both the minibatch size
 and the volume of collected data, and dominates the budget at the larger
 configurations.  Increasing the minibatch size markedly improves overall
 throughput (e.g.\ at $256$ environments, from $\sim\!6.5 \times 10^{3}$ steps
@@ -340,7 +338,7 @@ throughput near $10^{3}$ steps per second regardless of minibatch size.
     \small
     \begin{tabular}{rrrrr}
         \toprule
-        \textbf{\texttt{num\_envs}} & \textbf{\texttt{n\_steps}} &
+        \textbf{$n_{\mathrm{envs}}$} & \textbf{$n_{\mathrm{steps}}$} &
         \textbf{Rollout (ms)} & \textbf{Update (ms)} & \textbf{Steps/s} \\
         \midrule
         \multicolumn{5}{l}{\textit{PPO minibatch $=64$}} \\
@@ -381,15 +379,15 @@ throughput near $10^{3}$ steps per second regardless of minibatch size.
 The same experiment on the RTX~3060 (Table~\ref{tab:ppo_pergen_rtx}) makes the
 learner-side bottleneck unmistakable.  At the small environment counts that the
 M4 Pro was tested at, the GPU is actually slower: a single-environment
-generation takes $\sim\!26$\,s --- roughly eight times the M4 Pro figure ---
+generation takes $\sim\!26$\,s (roughly eight times the M4 Pro figure)
 because each tiny physics step pays a fixed GPU launch and host-transfer cost
 that the few in-flight environments cannot amortize.  Only once tens of
 thousands of environments share that fixed cost does the GPU pull ahead, with
 end-to-end throughput climbing to a peak of $\sim\!5.8 \times 10^{4}$ steps per
-second at $65536$ environments with the largest minibatch --- modestly above
-the M4 Pro's measured peak, but achieved at a $256\times$ larger batch.  The
-decisive observation is that even this best case sits almost two orders of
-magnitude below the raw GPU physics ceiling of $5.4 \times 10^{6}$ steps per
+second at $65536$ environments with the largest minibatch, modestly above
+the M4 Pro's measured peak but achieved at a $256\times$ larger batch. 
+Even this best case sits almost two orders of magnitude below the raw GPU
+physics ceiling of $5.4 \times 10^{6}$ steps per
 second: the CPU-resident SB3 update phase, whose median grows into the hundreds
 of milliseconds and then seconds per generation (last column of each block),
 now dominates the budget entirely.  This is the clearest motivation for the
@@ -410,7 +408,7 @@ JAX-native learner planned for TG-2.
     \small
     \begin{tabular}{rrrrr}
         \toprule
-        \textbf{\texttt{num\_envs}} & \textbf{\texttt{n\_steps}} &
+        \textbf{$n_{\mathrm{envs}}$} & \textbf{$n_{\mathrm{steps}}$} &
         \textbf{Rollout (ms)} & \textbf{Update (ms)} & \textbf{Steps/s} \\
         \midrule
         \multicolumn{5}{l}{\textit{PPO minibatch $=64$}} \\
@@ -465,23 +463,15 @@ Table~\ref{tab:wrapper_overhead} shows, the \texttt{VSSVecEnv} wrapper crosses
 a Python and Gymnasium boundary at every step, converting between JAX arrays
 and NumPy arrays, at a near-constant cost of $0.6$--$0.9$\,ms per step.  The
 full SB3 path adds CPU-bound PyTorch gradient updates, so the learner cannot
-stay on the same accelerator as the simulator.  In other words, the TG-1 simulator removes the original physics and
-socket-communication bottleneck, but the current training stack exposes a new
-learner-side bottleneck.  The JAX-native training path planned for TG-2 is
-designed to close this gap by keeping policy inference, rollout collection, and
-optimization on device.
+stay on the same accelerator as the simulator.  The TG-1 simulator removes the original physics and socket-communication
+bottleneck; the learner-side boundary now dominates.  A JAX-native training path~\cite{hessel2021podracer,toledo2024stoix} is
+planned for TG-2 to close this gap by keeping policy inference, rollout
+collection, and optimization on device.
 
-%% FIGURE SUGGESTION 1: A log-scale throughput figure with two panels: raw
-%% physics throughput on Mac/RTX, and training throughput against the Chapter 2
-%% ODE baselines. This is the single most important figure of TG-1 — it shows
-%% both the batching speedup and the remaining learner-side bottleneck.
-%% Model it on the throughput-vs-players plot in \textcite{scaling_marl_2d}, Fig. 3.
-
-These results validate the core hypothesis of the work — that expressing VSSS
-physics as batched array operations yields throughput far beyond what a
-conventional single-instance simulator can achieve — while also precisely
-locating the remaining inefficiencies, which the planned JAX-native training
-path is designed to eliminate.
+These results confirm that expressing VSSS physics as batched array operations
+yields throughput well above what a conventional single-instance simulator can
+achieve, and identify the learner-side boundary as the next bottleneck to
+address.
 
 % ------------------------------------------------------------------
 \subsection{Simulator Interface and Architecture}
@@ -522,21 +512,20 @@ The per-step data flow is:
 The observation is a 46-dimensional vector per environment (4 ball features and
 $6 \times 7$ robot features, all normalized), and the action is a 6-dimensional
 vector of normalized left/right wheel speeds for the three controlled robots,
-denormalized to physical units inside the backend.  These observation and action
-constructions are factored as swappable functions, which keeps the interface
-forward-compatible with the per-robot egocentric observations needed for the
-multi-agent formulation planned in TG-2.
+denormalized to physical units inside the backend.  These observation and action constructions are factored as swappable
+functions, so the interface supports per-robot egocentric observations without
+changes to the simulator.
 
 The robustness of this interface is supported by an automated test suite of 174
 unit tests (with 4 GPU-specific tests skipped in the absence of a GPU) covering
 physics correctness, Gymnasium API compliance, batched stepping and auto-reset,
-and the SB3 adapter protocol.  The preliminary TG-1
-result is therefore both a software artifact and an architectural validation:
-the simulator is straightforward to call from a learner while preserving the
-vectorization that the throughput results depend on.
+and the SB3 adapter protocol.  The simulator is therefore a validated, reusable artifact: straightforward to
+call from a learner while preserving the vectorization that the throughput
+results depend on.
+Figure~\ref{fig:pygame_window} shows the Pygame-based renderer used during
+development to visualise running matches and trained policies.
 
-%% FIGURE SUGGESTION 2: An architecture/data-flow diagram showing the backend
-%% resolver selecting numpy/jax, the batched SimState flowing through
+%% FIGURE SUGGESTION 2: An architecture/data-flow diagram, the batched SimState flowing through
 %% jit(vmap(step)), and the VSSVecEnv → SB3 adapter → PPO learner path. Mirror
 %% the "processes communication schema" style used in the prior ITAndroids TGs,
 %% but for an on-device loop rather than a socket loop — the contrast makes the
@@ -545,7 +534,7 @@ vectorization that the throughput results depend on.
 \begin{figure}[h]
     \centering
     \includegraphics[width=0.8\textwidth]{Cap5/pygame_window.png}
-    \caption{Pygame window showing a 3v3 match with the oriented-bounding-box robot shapes, direction indicators, and HUD.}
+    \caption{Pygame~\cite{pygame2024} window showing a 3v3 match with the square rigid-body robot shapes, direction indicators, and HUD.}
     \label{fig:pygame_window}
 \end{figure}
 
@@ -553,30 +542,13 @@ vectorization that the throughput results depend on.
 \subsection{Prioritized-Level-Replay Sampler}
 % ------------------------------------------------------------------
 
-The third preliminary result concerns the prioritized-level-replay sampler,
-which in TG-1 is established at the level of design and supporting
-infrastructure rather than full evaluation.
-
-The mechanism that the sampler will hook into is already in place.  Episode
-initialization is controlled by a pluggable \texttt{InitMode}, currently
-offering a standard kickoff formation (with small random jitter) and a fully
-randomized mode that places robots and the ball uniformly across the field.
-Both backends implement randomized reset, and the JAX implementation is
-\texttt{vmap}-ready, so a batch of distinct initial configurations can be
-generated on device in a single call.  Critically, the initialization interface
-was designed to accommodate a future selector mode, in which an external model
-supplies the placement distribution rather than a fixed rule — this is exactly
-the insertion point the \gls{plr} sampler requires.
-
-For TG-1, the contract the sampler must satisfy is defined: it receives
-per-scenario statistics from completed rollouts, updates a priority for each
-stored scenario from the magnitude of the value-prediction error, and returns a
-new batch of initial states biased toward high-priority scenarios while
-retaining enough exploration to avoid collapsing onto a narrow set.  The TG-1
-deliverable is the demonstration that this contract is compatible with the
-batched simulator interface — that scenarios can be stored, scored, and
-resampled without breaking vectorization.  Quantitative sample-efficiency
-results, in particular learning curves against uniform initialization, are
+The TG-1 deliverable for the \gls{plr} sampler is the initialization
+interface that will serve as its insertion point (the sampler design is
+described in Section~4.7 and deferred to TG-2).  The interface accepts an
+external source for episode configurations in place of the fixed kickoff and
+random modes, and the JAX backend is \texttt{vmap}-ready so that a full
+batch of sampler-supplied states can be initialized on device in a single
+call.  Sampler implementation and its sample-efficiency evaluation are
 deferred to TG-2.
 
 % ------------------------------------------------------------------
@@ -593,19 +565,18 @@ dense term proportional to the ball's forward progress, with the shaping
 coefficient set so that its total episodic contribution cannot exceed a single
 goal event.  Training runs are tracked with MLflow, logging per-generation mean,
 minimum, and maximum reward together with episode length.
-Here, one generation denotes one complete episode rollout in each parallel
-environment; for these runs, with 256 environments and a 300-step episode cap,
-one generation equals $256 \times 300 = 76{,}800$ environment transitions.
+For these runs, with 256 environments and a 300-step episode cap, one
+generation collects $256 \times 300 = 76{,}800$ environment transitions.
 
-The purpose of these early training experiments is not to produce a competitive
-policy but to confirm that rollout collection, advantage estimation, optimization,
-and checkpointing operate together correctly on the new infrastructure.
+These early training experiments serve to confirm that rollout collection,
+advantage estimation, optimization, and checkpointing operate correctly on the
+new infrastructure, not to produce a competitive policy.
 Table~\ref{tab:smoke_config} lists every setting that differs from the
 simulator defaults or that is shared across both runs; the physics contract
 (Table~\ref{tab:physics_design}, Chapter~4) and observation layout
 (Table~\ref{tab:obs}) apply unchanged unless noted.
-Both runs were executed on a MacBook with an Apple M4 Pro chip
-(\texttt{scripts/smoke.py}, batched JAX backend via \texttt{VSSVecEnv}).
+Both runs were executed on a MacBook with an Apple M4 Pro chip,
+using the batched JAX backend.
 Any learning curve reported at this stage should be read as a functional
 validation rather than a performance result.
 
@@ -650,7 +621,7 @@ validation rather than a performance result.
 
 Two initialization modes were compared.  In the first run, robots and the ball
 were placed at uniformly random positions across the field at the start of each
-episode (\texttt{InitMode.RANDOM}).  The per-generation mean reward over 900
+episode (random initialization).  The per-generation mean reward over 900
 generations is shown in Figure~\ref{fig:plot_random}.  Despite running for
 nearly an order of magnitude more generations than the kickoff run, the policy
 failed to make consistent progress: reward remains in the range $10^{-2}$
@@ -664,7 +635,7 @@ signal is too weak to drive reliable improvement.
     \centering
     \includegraphics[width=0.85\textwidth]{Cap5/plot_random.png}
     \caption{Per-generation mean episode reward (log scale) for Run~A in
-    Table~\ref{tab:smoke_config} (\texttt{InitMode.RANDOM}, 900 generations).
+    Table~\ref{tab:smoke_config} (random initialization, 900 generations).
     The policy exhibits no
     consistent upward trend, confirming that flat random initialization provides
     insufficient learning signal in the sparse goal-scoring setting.}
@@ -672,7 +643,7 @@ signal is too weak to drive reliable improvement.
 \end{figure}
 
 In the second run, episodes began from the standard kickoff formation with small
-random jitter (\texttt{InitMode.KICKOFF}), which places the ball at the centre
+random jitter (kickoff initialization), which places the ball at the centre
 and the robots near their starting positions.  The per-generation mean and
 minimum reward over 123 generations are shown in
 Figure~\ref{fig:plot_kickoff}.  Here the policy improves rapidly: mean reward
@@ -687,23 +658,21 @@ parallel instances.
     \centering
     \includegraphics[width=0.85\textwidth]{Cap5/plot_kickoff.png}
     \caption{Per-generation mean and minimum episode reward for Run~B in
-    Table~\ref{tab:smoke_config} (\texttt{InitMode.KICKOFF}, 123 generations).
+    Table~\ref{tab:smoke_config} (kickoff initialization, 123 generations).
     The policy converges rapidly
     once learning begins around generation 60, validating that the end-to-end
     training loop operates correctly under structured initialization.}
     \label{fig:plot_kickoff}
 \end{figure}
 
-Taken together, the two runs validate the training infrastructure and
-simultaneously motivate the prioritized-level-replay curriculum planned for
-TG-2.  Kickoff initialization is sufficient to confirm that the \gls{ppo} loop
-works, but it does not cover the diversity of game states the policy must handle.
-Random initialization covers that diversity but provides too sparse a signal to
-drive learning.  The \gls{plr} sampler is designed precisely to interpolate
-between these extremes: adaptively steering the distribution of initial states
-toward configurations where the current policy's value-prediction error is
-largest, thereby ensuring both sufficient difficulty and sufficient density of
-learning signal throughout training.
+The two runs validate the training infrastructure and motivate the
+prioritized-level-replay curriculum.  Kickoff initialization confirms that the
+\gls{ppo} loop works, but does not cover the diversity of game states the
+policy must handle.  Random initialization covers that diversity but provides
+too sparse a signal to drive learning.  The \gls{plr} sampler is designed to
+interpolate between these extremes: it steers the distribution of initial
+states toward configurations where the current policy's value-prediction error
+is largest, balancing sufficient difficulty with sufficient learning signal.
 
 % ==================================================================
 \section{Future Planned Results}
@@ -717,14 +686,17 @@ is intended to show.
 \subsection{Closing the throughput gap with a JAX-native learner.}
 The throughput measurements identified two ceilings: the Gymnasium boundary and
 the CPU-bound PyTorch updates of SB3.  Both stem from the learner living outside
-the accelerator.  The planned remedy is a fully JAX-resident training path, in
-which the policy, the rollout collection, and the gradient updates all execute
-on device alongside the simulator, removing the per-step host transfers
-entirely.  The target is to bring end-to-end \gls{ppo} throughput close to the
-raw batched-kernel ceiling — on the order of $5 \times 10^{6}$ steps per second
-on the RTX~3060, against the present peak of $\sim\!6 \times 10^{4}$ of the SB3 path.  The expected
-result is a before/after throughput comparison of the full training loop, not
-merely the simulator in isolation.
+the accelerator.  The planned remedy is a fully JAX-resident training path
+following the Anakin podracer architecture~\cite{hessel2021podracer}, in which
+the policy, rollout collection, and gradient updates all execute on device
+alongside the simulator, removing per-step host transfers entirely.
+Stoix~\cite{toledo2024stoix} provides a compiled \gls{ppo} implementation that
+supports this regime directly.  The target is to bring end-to-end \gls{ppo}
+throughput closer to the raw batched-kernel ceiling --- on the order of
+$5 \times 10^{6}$ steps per second on the RTX~3060, against the present peak
+of $\sim\!6 \times 10^{4}$ of the SB3 path.  The expected result is a
+before/after throughput comparison of the full training loop, not merely the
+simulator in isolation.
 
 \subsection{Prioritized-level-replay sample efficiency.}
 With the sampler integrated, the central evaluation is whether prioritizing

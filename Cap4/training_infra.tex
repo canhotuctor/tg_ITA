@@ -1,19 +1,25 @@
 % ============================================================
-%  TG-1 training-infrastructure diagram (AlphaStar Ext. Fig. 6 style).
+%  TG-1 training-infrastructure diagram (revised).
+%
+%  Structural changes from the initial version:
+%   – Learner and Policy merged into one SB3 PPO box.
+%     The standard SB3 OnPolicyAlgorithm is a single synchronous
+%     process; a two-box design implied an actor–learner split
+%     (e.g. IMPALA) that does not exist in TG-1.
+%   – JAX↔PyTorch device boundary made the visual focal point,
+%     matching the throughput argument in Chapter 5.
+%     All per-step obs/act data crosses this line every step.
+%   – Opponent team explicitly shown in Environments.
+%   – "On-device training loop" container removed: it spanned
+%     both the JAX device and the PyTorch/CPU learner, making
+%     "on-device" self-contradictory.
 %
 %  Required preamble (already present in tese.tex):
 %      \usepackage{tikz}
 %      \usetikzlibrary{arrows.meta,shapes,positioning}
-%  No calc/external libraries are needed.
-%
-%  Showcases the actual TG-1 smoke-test loop (scripts/smoke.py):
-%    InitMode -> VSSVecEnv (jit(vmap(step)), JAX) -> obs/act loop with the
-%    MLP policy -> trajectories cross the Gymnasium/SB3 boundary -> SB3 PPO
-%    learner (PyTorch, CPU) -> parameters back to the policy; MLflow logs
-%    rewards, episode length, throughput and checkpoints.
 % ============================================================
 
-% ---- palette (mirrors the reference figure) ----
+% ---- palette ----
 \definecolor{tgDeepBlue}{RGB}{17,52,160}
 \definecolor{tgTileBlue}{RGB}{96,141,224}
 \definecolor{tgPaleBlue}{RGB}{223,231,249}
@@ -22,7 +28,7 @@
 \definecolor{tgCrimson}{RGB}{214,40,87}
 \definecolor{tgArrow}{RGB}{40,40,55}
 
-% ---- centred grid of small tiles (drawn from the current origin) ----
+% ---- centred grid of small tiles (drawn from current origin) ----
 % #1=lastCol (cols-1)  #2=lastRow (rows-1)  #3=colour  #4=step  #5=cell
 \providecommand{\tgtiles}[5]{%
   \foreach \tx in {0,...,#1}{%
@@ -42,93 +48,143 @@
         sub/.style={font=\tiny, align=center, text=tgDeepBlue!85!black},
     ]
 
-    % ================= dashed "on-device training loop" container ==========
-    \draw[dashed, line width=1pt, draw=tgCrimson, rounded corners=4pt]
-        (-0.3,-2.55) rectangle (14.7,1.55);
-    \node[fill=tgCrimson, text=white, font=\scriptsize\bfseries,
-          inner sep=2.5pt, rounded corners=1pt]
-        at (1.15,1.55) {On-device training loop};
+    % ===== Background tints: CPU side (left) vs JAX side (right) =============
+    % White strip at x=7.3–7.7 keeps the boundary line visually clear.
+    \fill[tgPaleGold!30] (-0.2,-2.3) rectangle (7.3,5.7);
+    \fill[tgPaleBlue!30] (7.7,-2.3) rectangle (15.2,5.7);
 
-    % ============================ LEARNER card =============================
-    \node[card, fill=tgPaleGold, minimum width=3.4cm, minimum height=2.2cm]
-        (learner) at (1.9,0) {};
-    \fill[tgDeepBlue] ([yshift=-0.5cm]learner.north west) rectangle (learner.north east);
-    \node[white, font=\scriptsize\bfseries] at ([yshift=-0.25cm]learner.north) {Learner (PPO)};
-    \begin{scope}[shift={(1.9,0.1)}] \tgtiles{3}{2}{tgGold}{0.26}{0.18} \end{scope}
-    \node[sub] at (1.9,-0.78) {Stable-Baselines3\\PyTorch $\cdot$ CPU\\gradient updates};
+    % ===== JAX ↔ PyTorch device boundary — visual focal point ================
+    \draw[line width=1.5pt, draw=tgCrimson] (7.5,-2.3) -- (7.5,5.7);
+    \node[fill=white, text=tgCrimson, font=\tiny\bfseries,
+          inner sep=2pt, align=center]
+        at (7.5,5.5) {device\,$\leftrightarrow$\,host\\[-1pt](per-step)};
 
-    % ============================ POLICY card ==============================
-    \node[card, fill=tgPaleGold, minimum width=3.0cm, minimum height=2.2cm]
-        (policy) at (6.6,0) {};
-    \fill[tgDeepBlue] ([yshift=-0.5cm]policy.north west) rectangle (policy.north east);
-    \node[white, font=\scriptsize\bfseries] at ([yshift=-0.25cm]policy.north) {Policy (Actor)};
-    \begin{scope}[shift={(6.6,0.1)}] \tgtiles{2}{2}{tgGold}{0.26}{0.18} \end{scope}
-    \node[sub] at (6.6,-0.78) {MLP $\pi_\theta$\\shared actor--critic\\centralized joint control};
+    % ===== Side labels =======================================================
+    \node[font=\tiny\itshape, text=tgDeepBlue!70]
+        at (3.0,-2.15) {CPU / PyTorch (host)};
+    \node[font=\tiny\itshape, text=tgDeepBlue!70]
+        at (12.2,-2.15) {JAX accelerator (device)};
 
-    % ========================= ENVIRONMENTS card ==========================
-    \node[card, fill=tgPaleBlue, minimum width=3.8cm, minimum height=2.2cm]
+    % ========================= SB3 PPO card (CPU side) =======================
+    \node[card, fill=tgPaleGold, minimum width=5.2cm, minimum height=3.0cm]
+        (sb3) at (3.0,0) {};
+    \begin{scope}
+      \clip[rounded corners=2pt] (sb3.south west) rectangle (sb3.north east);
+      \fill[tgDeepBlue] ([yshift=-0.5cm]sb3.north west) rectangle (sb3.north east);
+    \end{scope}
+    \node[white, font=\scriptsize\bfseries]
+        at ([yshift=-0.25cm]sb3.north) {SB3 PPO (PyTorch $\cdot$ CPU)};
+    \begin{scope}[shift={(3.0,0.15)}]
+        \tgtiles{3}{2}{tgGold}{0.26}{0.18}
+    \end{scope}
+    \node[sub] at (3.0,-0.82)
+        {MLP $\pi_\theta$ (actor+critic trunk)\\
+         single-process \texttt{OnPolicyAlgorithm}\\
+         PPO gradient updates};
+
+    % ========================= ENVIRONMENTS card (JAX side) ==================
+    \node[card, fill=tgPaleBlue, minimum width=5.2cm, minimum height=3.0cm]
         (env) at (12.2,0) {};
-    \fill[tgDeepBlue] ([yshift=-0.5cm]env.north west) rectangle (env.north east);
-    \node[white, font=\scriptsize\bfseries] at ([yshift=-0.25cm]env.north) {Environments};
-    \begin{scope}[shift={(12.2,0.12)}] \tgtiles{5}{3}{tgTileBlue}{0.22}{0.15} \end{scope}
-    \node[sub] at (12.2,-0.80) {\texttt{VSSVecEnv} $\cdot$ JAX\\$\mathrm{jit}(\mathrm{vmap}(\texttt{step}))$\\256--1024 parallel matches};
+    \begin{scope}
+      \clip[rounded corners=2pt] (env.south west) rectangle (env.north east);
+      \fill[tgDeepBlue] ([yshift=-0.5cm]env.north west) rectangle (env.north east);
+    \end{scope}
+    \node[white, font=\scriptsize\bfseries]
+        at ([yshift=-0.25cm]env.north) {Environments};
+    \begin{scope}[shift={(12.2,0.15)}]
+        \tgtiles{5}{3}{tgTileBlue}{0.22}{0.15}
+    \end{scope}
+    \node[sub] at (12.2,-0.82)
+        {\texttt{VSSVecEnv} $\cdot$ JAX $\cdot$
+         $\mathrm{jit}(\mathrm{vmap}(\texttt{step}))$\\
+         256--1024 parallel matches\\
+         opponent: scripted / frozen $\pi^{(t-k)}_\theta$};
 
-    % ============================ MLflow card ==============================
-    \node[card, fill=tgPaleBlue, minimum width=3.4cm, minimum height=1.55cm]
-        (mlflow) at (1.9,4.4) {};
-    \fill[tgDeepBlue] ([yshift=-0.42cm]mlflow.north west) rectangle (mlflow.north east);
-    \node[white, font=\scriptsize\bfseries] at ([yshift=-0.21cm]mlflow.north) {MLflow tracking};
-    \begin{scope}[shift={(1.9,4.55)}] \tgtiles{4}{1}{tgTileBlue}{0.2}{0.13} \end{scope}
-    \node[sub] at (1.9,4.12) {reward (mean/min) $\cdot$ ep.\ length\\throughput $\cdot$ checkpoints};
-
-    % ========================= INITIALIZATION card ========================
+    % ============================ MLflow card ================================
     \node[card, fill=tgPaleBlue, minimum width=3.8cm, minimum height=1.55cm]
+        (mlflow) at (3.0,4.4) {};
+    \begin{scope}
+      \clip[rounded corners=2pt] (mlflow.south west) rectangle (mlflow.north east);
+      \fill[tgDeepBlue] ([yshift=-0.42cm]mlflow.north west) rectangle (mlflow.north east);
+    \end{scope}
+    \node[white, font=\scriptsize\bfseries]
+        at ([yshift=-0.21cm]mlflow.north) {MLflow tracking};
+    \begin{scope}[shift={(3.0,4.55)}]
+        \tgtiles{4}{1}{tgTileBlue}{0.2}{0.13}
+    \end{scope}
+    \node[sub] at (3.0,4.12)
+        {reward (mean/min) $\cdot$ ep.\ length\\throughput $\cdot$ checkpoints};
+
+    % ========================= INITIALIZATION card ===========================
+    \node[card, fill=tgPaleBlue, minimum width=4.2cm, minimum height=1.55cm]
         (init) at (12.2,4.4) {};
-    \fill[tgDeepBlue] ([yshift=-0.42cm]init.north west) rectangle (init.north east);
-    \node[white, font=\scriptsize\bfseries] at ([yshift=-0.21cm]init.north) {Initialization};
-    \begin{scope}[shift={(12.2,4.55)}] \tgtiles{4}{1}{tgTileBlue}{0.2}{0.13} \end{scope}
-    \node[sub] at (12.2,4.12) {\texttt{InitMode}: kickoff / random\\($\rightarrow$ PLR sampler, TG-2)};
+    \begin{scope}
+      \clip[rounded corners=2pt] (init.south west) rectangle (init.north east);
+      \fill[tgDeepBlue] ([yshift=-0.42cm]init.north west) rectangle (init.north east);
+    \end{scope}
+    \node[white, font=\scriptsize\bfseries]
+        at ([yshift=-0.21cm]init.north) {Initialization};
+    \begin{scope}[shift={(12.2,4.55)}]
+        \tgtiles{4}{1}{tgTileBlue}{0.2}{0.13}
+    \end{scope}
+    \node[sub] at (12.2,4.12)
+        {\texttt{InitMode}: kickoff / random\\($\rightarrow$ PLR sampler, TG-2)};
 
-    % =============================== ARROWS ================================
-    % Learner -> Policy : parameters
-    \draw[flow] (learner.east) -- (policy.west)
-        node[lab, midway] {Parameters $\theta$};
+    % ============================ ARROWS =====================================
 
-    % Policy -> Environments : actions  (upper)
-    \draw[flow] ([yshift=0.28cm]policy.east) -- ([yshift=0.28cm]env.west)
-        node[lab, midway] {Actions $a\!\in\!\mathbb{R}^{6}$};
-    % Environments -> Policy : observations  (lower)
-    \draw[flow] ([yshift=-0.28cm]env.west) -- ([yshift=-0.28cm]policy.east)
-        node[lab, midway] {Obs.\ $o\!\in\!\mathbb{R}^{46}$};
+    % Per-step: allied action SB3 → Env (crosses device boundary)
+    \draw[flow] ([yshift=0.5cm]sb3.east) -- ([yshift=0.5cm]env.west)
+        node[lab, pos=0.25] {act $a\!\in\!\mathbb{R}^{6}$ (allied)};
+    % Per-step: observation Env → SB3 (crosses device boundary)
+    \draw[flow] ([yshift=-0.5cm]env.west) -- ([yshift=-0.5cm]sb3.east)
+        node[lab, pos=0.75] {obs $o\!\in\!\mathbb{R}^{46}$};
 
-    % Environments -> Learner : trajectories (bottom return path)
-    \draw[flow] (env.south) -- (12.2,-2.05) -- (1.9,-2.05) -- (learner.south);
-    \node[lab] at (9.2,-2.05) {Trajectories $(o,a,r,\text{done})$};
-    % SB3 / Gymnasium boundary node sitting on the return path
+    % Gymnasium ⇌ SB3 adapter sitting ON the boundary —
+    % mediates every per-step obs/act transfer
     \node[draw=tgDeepBlue, line width=0.8pt, fill=white, rounded corners=2pt,
-          align=center, font=\tiny, inner sep=2.5pt] at (5.0,-2.05)
-        {Gymnasium\,$\rightleftarrows$\,SB3\\adapter};
+          align=center, font=\tiny, inner sep=2.5pt]
+        at (7.5,0) {Gymnasium\,$\rightleftarrows$\,SB3\\adapter};
 
-    % Initialization -> Environments : initial states
+    % Rollout buffer returned after N steps (bottom path)
+    \draw[flow] (env.south) -- (12.2,-1.85) -- (3.0,-1.85) -- (sb3.south);
+    \node[lab] at (7.5,-1.85)
+        {rollout $(o,a,r,\text{done})$ — $N$ steps};
+
+    % Initialization → Environments
     \draw[flow] (init.south) -- (env.north)
-        node[lab, midway] {Initial states};
+        node[lab, midway] {initial states};
 
-    % Learner -> MLflow : metrics & checkpoints
-    \draw[flow] (learner.north) -- (mlflow.south)
+    % SB3 → MLflow
+    \draw[flow] (sb3.north) -- (mlflow.south)
         node[lab, midway] {metrics};
 
     \end{tikzpicture}%
     }
-    \caption{Training infrastructure used for the TG-1 smoke tests
-    (\texttt{scripts/smoke.py}).  The on-device loop (dashed box) holds a single
-    batched \texttt{VSSVecEnv} that advances 256--1024 matches in parallel through
-    $\mathrm{jit}(\mathrm{vmap}(\texttt{step}))$ on the JAX device.  Each step
-    exports a $\mathbb{R}^{46}$ observation to the MLP policy, which returns the
-    $\mathbb{R}^{6}$ joint wheel-speed action; collected trajectories cross the
-    Gymnasium\,$\rightleftarrows$\,SB3 adapter to the PPO learner (PyTorch, CPU),
-    whose updated parameters $\theta$ flow back to the policy.  Episode resets are
-    driven by the pluggable \texttt{InitMode} (kickoff or random, the future
-    insertion point for the PLR sampler), and MLflow logs per-generation reward,
-    episode length, throughput and checkpoints.}
+    \caption{Training infrastructure for the TG-1 smoke tests
+    (\texttt{scripts/smoke.py}).  The figure is organised around the
+    \textbf{device\,$\leftrightarrow$\,host boundary} (red vertical line):
+    the CPU/PyTorch side (left, warm tint) holds the PPO learner, and the
+    JAX accelerator side (right, blue tint) holds the vectorised
+    environments.  \emph{Every step}, the environment receives the allied
+    action $a\!\in\!\mathbb{R}^{6}$ (wheel speeds for all three robots
+    output by the centralized MLP $\pi_\theta$) and an opponent action
+    (scripted agent or frozen checkpoint $\pi^{(t-k)}_\theta$), then
+    returns observation $o\!\in\!\mathbb{R}^{46}$ (positions, velocities,
+    and headings of all six robots plus the ball).  Both arrays must cross
+    the Gymnasium\,$\rightleftarrows$\,SB3 adapter on every call
+    (device$\to$host for obs; host$\to$device for act); this per-step
+    transfer is the throughput bottleneck motivating the JAX-native
+    training loop planned for TG-2.  The \textbf{SB3 PPO box is a single
+    synchronous process} (\texttt{OnPolicyAlgorithm}): there is no
+    actor--learner split; \texttt{collect\_rollouts} and \texttt{train}
+    share the same MLP object (actor and critic share an MLP trunk ---
+    not per-agent parameter sharing); the learner is intentionally placed
+    on CPU to avoid GPU contention with the JAX device.  After $N$ steps
+    the accumulated rollout buffer feeds the PPO update.  Episode resets
+    use the pluggable \texttt{InitMode} (the future PLR sampler insertion
+    point), and MLflow logs per-episode mean/min reward, episode length,
+    throughput, and checkpoints.  The centralized joint-control
+    formulation (one MLP, one team) is the TG-1 baseline;
+    per-agent parameter sharing and \gls{ctde} are deferred to TG-2.}
     \label{fig:training_infra}
 \end{figure}
