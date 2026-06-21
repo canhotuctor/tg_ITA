@@ -19,9 +19,9 @@ physical.  The same demand appears whether the robot is sorting parts on a
 factory line, inspecting a pipeline on the seabed, or driving across another
 planet: perceive a complex, changing world and decide what to do next.
 
-\color{red}
-figura 1: some robotics examples
-\color{black}
+% \color{red}
+% figura 1: some robotics examples
+% \color{black}
 
 For decades, the dominant answer to that demand was to anticipate the world on
 the engineer's behalf.  Behavior was spelled out in advance as rules, state
@@ -166,7 +166,7 @@ The team already has a sequence of works showing that learned policies can
 perform meaningful 3v3 soccer behaviors.  However, training and evaluating
 these policies remains expensive: the existing simulator architecture limits
 how many interactions can be produced per unit time.  This cost is one of the main
-practical barrier that separate \gls{rl} research in \gls{vsss} from routine
+practical barriers that separate \gls{rl} research in \gls{vsss} from routine
 use inside the ITAndroids development cycle.
 
 The objective of TG-1 is to address the throughput barrier by building the
@@ -278,14 +278,14 @@ communicate with the learner across a process boundary, an architecture whose
 throughput scales poorly with the number of parallel environments.
 
 Two broad approaches have emerged to remove this bottleneck.  The first places
-the physics engine directly on the GPU: Isaac Gym~\cite{makoviychuk2021isaacgym}
-and its successor Isaac Lab run a PhysX-based rigid-body simulator on the GPU,
-exposing simulation state as tensors consumed by the policy without any CPU
+the physics engine directly on the \gls{gpu}: Isaac Gym~\cite{makoviychuk2021isaacgym}
+and its successor Isaac Lab run a PhysX-based rigid-body simulator on the \gls{gpu},
+exposing simulation state as tensors consumed by the policy without any \gls{cpu}
 detour, though the stack is tied to Linux and NVIDIA hardware.
 MJX~\cite{zakka2025mujocoplayground}, a just-in-time-compiled reimplementation
 of MuJoCo, brings that contact-rich physics engine into a batched regime.
 Brax~\cite{freeman2021brax} implements a differentiable rigid-body engine
-entirely in JAX.  In the robot soccer context,
+entirely in \gls{jax}.  In the robot soccer context,
 \textcite{scaling_marl_2d} built a custom 2D environment whose physics consists
 of simple vectorizable operations and reported throughput one to two orders of
 magnitude higher than MuJoCo-backed alternatives, demonstrating that a
@@ -307,7 +307,7 @@ A complementary way to reduce training cost is to improve the value of each
 transition rather than the rate at which transitions are produced.  Prioritized
 Experience Replay~\cite{schaul2016per} established that, in off-policy learning,
 replaying transitions in proportion to their temporal-difference error learns
-faster than uniform replay.  Prioritized Level Replay (\gls{plr}) extends this
+faster than uniform replay. \gls{plr} extends this
 intuition to the selection of \emph{which situations to play} rather than which
 past transitions to revisit: it scores environment configurations by an estimate
 of their future learning potential and biases the agent's experience toward the
@@ -329,7 +329,7 @@ situations should the current policy experience next?
 \label{sec:contributions}
 % ------------------------------------------------------------------
 
-The main TG-1 contribution is a JAX-based, GPU-parallel simulator
+The main TG-1 contribution is a JAX-based, \gls{gpu}-parallel simulator
 for 3v3 \gls{vsss}, built
 around batched physics and accelerator-friendly rollout loops.  The
 simulator is designed to step thousands of independent game instances
@@ -354,7 +354,7 @@ full-team decision-making and control in the IEEE \gls{vsss} league.
 The remainder of this work is organized as follows:
 \begin{itemize}
   \item \textbf{Chapter~2} describes the IEEE \gls{vsss} domain, the differential-drive robot model, and the existing simulators used in the community and their limitations for large-scale \gls{rl} training.
-  \item \textbf{Chapter~3} covers the machine-learning background: reinforcement learning fundamentals, \gls{ppo}, curriculum learning, prioritized level replay, multi-agent self-play, symmetry exploitation, and GPU-accelerated simulation.
+  \item \textbf{Chapter~3} covers the machine-learning background: reinforcement learning fundamentals, \gls{ppo}, curriculum learning, prioritized level replay, multi-agent self-play, symmetry exploitation, and \gls{gpu}-accelerated simulation.
   \item \textbf{Chapter~4} defines the proposed methodology, including the multi-agent \gls{mdp} formulation, policy architecture, and simulator design.
   \item \textbf{Chapter~5} reports preliminary TG-1 results, focusing on measured simulator throughput, interface validation and two simple example policy training experiments, as well as some of the discussion regarding the role of planned improvements in TG-2.
   \item \textbf{Chapter~6} summarizes TG-1 and defines the roadmap toward TG-2.

@@ -39,6 +39,7 @@ scheme, the prioritized-level-replay sampler, and a closing statement of scope.
 
 % ==================================================================
 \section{The Simulator}
+\label{sec:simulator}
 % ==================================================================
 
 The simulator aims to be implemented as a batched JAX environment, designed for
@@ -55,8 +56,7 @@ $o \in \mathbb{R}^{46}$ and rewards for each environment.  The
 maps each observation to a joint action $a \in \mathbb{R}^{6}$ (left and right
 wheel speeds for all three robots).  Collected trajectories $(o, a, r,
 \text{done})$ cross a Gymnasium$\leftrightarrow$SB3 adapter to the
-\textbf{learner} (\gls{sb3} \gls{ppo}, running on PyTorch mainly on CPU for now, so we have no transfer overhead from this transfer too), which updates
-the policy parameters $\theta$ and returns them to the policy.
+\textbf{learner} (\gls{sb3} \gls{ppo}, running on PyTorch on CPU), which updates the policy parameters $\theta$ and returns them to the policy.  On CPU-only hardware (e.g.\ the Apple M4 Pro), the JAX environment and the SB3 learner share the same memory and no cross-device transfer occurs.  On GPU hardware (e.g.\ the NVIDIA RTX 3060), the environment runs on the GPU while SB3 runs on the CPU, so the Gymnasium$\leftrightarrow$SB3 adapter incurs a per-step host--device transfer — the same overhead the batched simulator removes within the collection loop.
 
 As a preparation, the simulator \textbf{initialization module}
 was designed in such a way that it can supply initial game states to the environment
@@ -208,11 +208,11 @@ implement.
         \addlinespace
         Restitution on impact &
         Separate coeffs.\ for ball–wall, ball–robot, robot–wall &
-        Tunable bounce; prevents energy blow-up in dense clusters. \\
+        Each contact pair involves different materials (ball, robot chassis, wall), so independent coefficients are physically motivated and match FIRASim's parameterisation. \\
         \addlinespace
         Goals without terminal &
         Score event + kickoff reset; episode ends on step cap only &
-        Aligns with continuous play; keeps \texttt{terminated}$=$\texttt{False}. \\
+        A goal is not an end-of-game condition, the episode continues after reset using the kickoff mode chosen by the user until the step cap is reached. \\
         \bottomrule
     \end{tabular}
 \end{table}
@@ -277,6 +277,7 @@ $+y$ along the goal line.
 
 % ------------------------------------------------------------------
 \subsection{State and Observation Space}
+\label{sec:obs_space}
 % ------------------------------------------------------------------
 
 The full simulator state is described in Section~4.2.  From it, the learning
@@ -314,6 +315,7 @@ simulator.
 
 % ------------------------------------------------------------------
 \subsection{Action Space}
+\label{sec:action_space}
 % ------------------------------------------------------------------
 
 The action space is continuous.  In the baseline formulation, the policy

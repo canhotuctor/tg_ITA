@@ -170,14 +170,20 @@ compute $\hat{A}_t$ via Generalized Advantage Estimation
 \begin{equation}
     \hat{A}_t^{\mathrm{GAE}} = \sum_{k=0}^{T-t}(\gamma\lambda)^k\,\delta_{t+k},
     \qquad
-    \delta_t = r_t + \gamma V_w(s_{t+1}) - V_w(s_t),
+    \delta_{t+k} = r_{t+k} + \gamma V_w(s_{t+k+1}) - V_w(s_{t+k}),
     \label{eq:gae}
 \end{equation}
 %
-where $\delta_t = r_t + \gamma V_w(s_{t+1}) - V_w(s_t)$ is the one-step
-temporal-difference (TD) error, and $\lambda \in [0,1]$ trades variance
-against bias: $\lambda \to 0$ relies heavily on the critic estimate, and
-$\lambda \to 1$ relies more on actual returns.
+where each $\delta_{t+k}$ is the one-step temporal-difference (TD) error at
+future step $t+k$: the immediate reward $r_{t+k}$ plus the bootstrapped value
+of the next state, minus the current critic estimate.  The exponentially
+decaying weight $(\gamma\lambda)^k$ controls how far into the future each
+term contributes.  $\lambda \in [0,1]$ trades variance against bias:
+$\lambda \to 0$ collapses the sum to the single one-step TD error, relying
+heavily on the critic estimate (lower variance, higher bias from approximation
+error); $\lambda \to 1$ weights all future TD errors equally and the sum
+approaches the full empirical return minus the value baseline (lower bias,
+higher variance).
 
 \gls{ppo}~\cite{schulman2017ppo} extends the actor-critic framework with a
 constraint that prevents destructively large policy updates.  It defines the
@@ -327,6 +333,18 @@ effective number of distinct states the policy is trained on.
 Both forms of symmetry are treated as first-class design choices in the
 training methodology rather than as optional post-processing.
 
+Exploiting these symmetries carries a trade-off worth acknowledging.
+Sharing parameters across all three allied robots pushes their behavior toward
+a common policy: the network learns a single strategy that works regardless
+of which robot slot it occupies.  In most of the field this regularization is
+beneficial, but it limits the diversity of individual robot behaviors the team
+can express.  Roles that require genuinely distinct specializations — a
+dedicated goalkeeper versus an aggressive striker, for instance — are harder
+to learn under strict parameter sharing, since the same weights must serve
+both contexts.  This limitation becomes more relevant as the curriculum extends
+to adversarial self-play, where behavioral diversity across the team
+is a source of robustness against varied opponent strategies.
+
 % ------------------------------------------------------------------
 \section{Hardware-Accelerated Simulation}
 % ------------------------------------------------------------------
@@ -355,7 +373,7 @@ from learners and is better suited when the environment is not itself written
 in \gls{jax}.
 
 These properties are only useful if the learning algorithm shares the same
-device.  Stable-Baselines3 (\gls{sb3}) ~\cite{raffin2021sb3} is a widely used \gls{ppo}
+device. \gls{sb3} ~\cite{raffin2021sb3} is a widely used \gls{ppo}
 reference implementation built on PyTorch; coupling it to a \gls{jax}
 simulator reintroduces a framework boundary and a host-side training loop,
 restoring the same per-step transfer overhead the batched simulator removes.

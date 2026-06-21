@@ -26,6 +26,26 @@ determine whether the simulator and training infrastructure built in TG-1 can
 produce a robust, competitive 3v3 \gls{vsss} team policy and define the next
 steps toward eventual deployment.
 
-\color{red}
-gantt chart TBD
-\color{black}
+Table~\ref{tab:gantt} shows the planned schedule for the TG-2 development period.
+
+\definecolor{ganttblue}{RGB}{70,130,180}
+\begin{table}[ht]
+    \centering
+    \caption{TG-2 planned schedule (Jun--Nov 2026).  Shaded cells indicate the
+    months in which each task is active.}
+    \label{tab:gantt}
+    \setlength{\tabcolsep}{6pt}
+    \begin{tabular}{l|cccccc}
+        \toprule
+        \textbf{Task} & \textbf{Jun} & \textbf{Jul} & \textbf{Aug} & \textbf{Sep} & \textbf{Oct} & \textbf{Nov} \\
+        \midrule
+        Finish TG-1               & \cellcolor{ganttblue!70} &                          &                          &                          &                          &                          \\
+        JAX-native learner        & \cellcolor{ganttblue!70} & \cellcolor{ganttblue!70} &                          &                          &                          &                          \\
+        PLR sampler               &                          & \cellcolor{ganttblue!70} &                          &                          &                          &                          \\
+        Symmetry exploitation     &                          & \cellcolor{ganttblue!70} & \cellcolor{ganttblue!70} &                          &                          &                          \\
+        Self-play curriculum      &                          & \cellcolor{ganttblue!70} & \cellcolor{ganttblue!70} &                          &                          &                          \\
+        Evaluation \& comparison  &                          &                          & \cellcolor{ganttblue!70} & \cellcolor{ganttblue!70} & \cellcolor{ganttblue!70} & \cellcolor{ganttblue!70} \\
+        TG-2 writing              &                          &                          &                          &                          & \cellcolor{ganttblue!70} & \cellcolor{ganttblue!70} \\
+        \bottomrule
+    \end{tabular}
+\end{table}

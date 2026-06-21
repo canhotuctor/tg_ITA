@@ -102,8 +102,8 @@ methodology can be.
 \subsection{The Conventional Architecture: ODE-Based Simulators}
 
 The most established simulators in the VSSS community share a common
-architectural pattern: a physics engine based on the \emph{Open Dynamics
-Engine} (\gls{ode}). Written in C++, that runs as a standalone process and exposes
+architectural pattern: a physics engine based on the \gls{ode}. Written in C++,
+that runs as a standalone process and exposes
 its state to external agents through socket messages.  ODE is an open-source
 library for simulating rigid-body dynamics that requires only the geometry and
 inertial parameters of each body as input, rather than manually derived
@@ -157,6 +157,7 @@ top of both engines to standardize the observation and action spaces and to
 allow interchangeable use with general RL toolkits, following \parencite{bassani2020}.
 
 \subsection{The Throughput Bottleneck}
+\label{sec:throughput_bottleneck}
 
 The multi-process, socket-based architecture described above introduces a
 fundamental throughput bottleneck that becomes critical when scaling RL
@@ -248,11 +249,10 @@ entire VSSS physics (rigid-body kinematics, collision detection, and ball
 dynamics) as batched array operations that can be compiled and executed
 on a \gls{gpu}.  This design makes it possible to step thousands of
 independent game instances simultaneously within a single device call,
-eliminating inter-process communication and CPU-GPU data transfers from the
+eliminating inter-process communication and \gls{cpu}-\gls{gpu} data transfers from the
 critical path.  The physics model is deliberately simpler than a full \gls{ode}
-simulation: it captures the aspects of the game that matter most for learning
+simulation: it captures basic elements of 2D Physics simulation
 (differential-drive kinematics, ball-robot contact, wall collisions, and
-friction) while sacrificing details that would prevent vectorization or require
-variable-time-step integration.  A \emph{faithful-enough} simulation that
-supports policy transfer to real hardware is the goal; domain randomization
-and noise injection address the remaining sim-to-real gap separately.
+friction) while sacrificing some details in a first moment to achieve better throughput.
+
+This simplification is a deliberate tradeoff: a simpler model is faster to run in large batches, but it does not automatically capture every physical element that may be relevant to learning good soccer behavior.  Whether the retained elements are sufficient is ultimately an empirical question, left to the training and evaluation results.

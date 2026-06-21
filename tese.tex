@@ -78,6 +78,7 @@
 %PACOTEFIGURAS_SE _ERRADO_ESXCLUIR_ACIMA
 \usepackage{booktabs}
 \usepackage{threeparttable}
+\usepackage[table]{xcolor}
 %PACOTETABELAS_SE _ERRADO_ESXCLUIR_ACIMA
 \usepackage{tikz}
 \usetikzlibrary{arrows.meta,shapes,positioning}
@@ -108,7 +109,7 @@
 % Titulo da Tese/Dissertação
 \title{
 % \color{red}
-A High-Throughput GPU Simulator and Multi-Agent Reinforcement Learning Framework for 3v3 IEEE Very Small Size Soccer
+A Vectorized Reinforcement Learning Framework for IEEE Very Small Size Soccer
 }
 
 
@@ -163,6 +164,9 @@ A High-Throughput GPU Simulator and Multi-Agent Reinforcement Learning Framework
 \mainmatter
 % Os capitulos comecam aqui
 
+\chapter*{Disclaimer: Use of AI Tools}
+\input{ApeA/apendiceA}
+
 \chapter{Introduction}
 \input{Cap1/cap1}
 
@@ -175,7 +179,7 @@ A High-Throughput GPU Simulator and Multi-Agent Reinforcement Learning Framework
 \chapter{Methodology}
 \input{Cap4/cap4}
 
-\chapter{Preliminary Results}
+\chapter{Results}
 \input{Cap5/cap5}
 
 \chapter{Conclusion}
@@ -186,9 +190,9 @@ A High-Throughput GPU Simulator and Multi-Agent Reinforcement Learning Framework
 \printbibliography
 
 % Apendices e anexos podem ser habilitados quando houver material complementar.
-\appendix
-\chapter{Supplementary Material}
-\input{ApeA/apendiceA}
+% \appendix
+% \chapter{Supplementary Material}
+% \input{ApeA/apendiceA}
 %
 % \annex
 % \chapter{External Material}
