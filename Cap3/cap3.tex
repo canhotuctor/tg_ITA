@@ -324,11 +324,12 @@ that shared parameters provide a natural implicit regularization.
 
 \textbf{Reflection symmetry.}  The VSSS field is bilaterally symmetric about
 its longitudinal axis.  A game state mirrored across that axis, with signs of
-transverse coordinates flipped consistently for positions, velocities, and
-actions, is an equally valid game state with the same value.  This symmetry
-can be exploited through data augmentation: every collected transition generates
-a second, reflected transition at no additional simulation cost, doubling the
-effective number of distinct states the policy is trained on.
+transverse coordinates flipped consistently for positions and velocities and
+the left and right wheel commands exchanged, is an equally valid game state
+with the same value.  This symmetry can be exploited by presenting the policy
+with a reflected view of an episode and mapping its actions back to simulation
+coordinates.  Since the transform is applied while collecting the rollout, the
+resulting samples remain on-policy.
 
 Both forms of symmetry are treated as first-class design choices in the
 training methodology rather than as optional post-processing.

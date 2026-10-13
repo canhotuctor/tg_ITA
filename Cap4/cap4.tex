@@ -401,23 +401,30 @@ Even within the centralized formulation, two classes of symmetry of the
 
 \textbf{Input-ordering invariance.}  The 46-dimensional observation concatenates
 ball features followed by six robots each contributing seven features.  Because
-the three allied robots are homogeneous, any permutation of their slots in the
-input produces an equivalent game state; ideally the policy should be invariant
-to this relabeling.  In TG-1 the robot ordering in the observation is fixed and
-consistent across steps, so the network must learn this invariance from data.
-A permutation-equivariant architecture, or a per-robot formulation that makes
-the invariance exact by construction, eliminates this dependency on learned
-invariance.
+the robots within each team are homogeneous, any permutation of their slots in
+the input produces an equivalent game state.  For allied robots the corresponding
+two-wheel action blocks must be permuted by the same relabeling; opponent
+permutations affect only the observation.  The implementation samples independent
+allied and opponent permutations at episode reset, keeps them fixed throughout
+the episode, and maps policy actions back to the simulator's canonical ordering.
 
 \textbf{Reflection augmentation.}  The \gls{vsss} field is bilaterally symmetric
-about its longitudinal axis.  A transition $(o_t, a_t, r_t, o_{t+1})$ collected
-from play can be mirrored — transverse coordinates and velocities negated,
-transverse components of the joint action negated — to produce a second valid
-transition at no additional simulation cost.  This augmentation applies directly
-to the centralized formulation and is expected to double the effective number of
-distinct states the policy is trained on, reducing overfitting to specific field
-positions.  The details of the sign-flip transform for positions, velocities, and
-wheel-speed actions are implemented in the simulator's observation module.
+about its longitudinal axis.  In the reflected observation, transverse positions
+and velocities, heading sine, and angular velocity change sign.  A reflected
+differential-drive command exchanges the left and right wheel speeds; it does not
+negate a transverse action component, since no such component exists in VSSS.
+
+Both mechanisms use an environment-agnostic JAX wrapper.  A domain-specific
+symmetry object defines how to sample a group element, transform observations,
+and transform actions in both directions.  At reset the wrapper samples one
+element of $C_2 \times S_3 \times S_3$ and retains it for the episode.  It presents
+transformed observations to the policy and inversely transforms actions before
+stepping the simulator, leaving rewards and termination signals unchanged.  This
+collects symmetry-augmented experience without modifying PPO's replay batch or
+violating its on-policy assumption.  The wrapper is independent of robot count and
+action semantics; migration to SSL therefore requires a new domain transform
+(including omnidirectional velocities and kick/dribble channels), not a new
+augmentation mechanism.
 
 % ==================================================================
 \section{Curriculum Learning and Self-Play}
