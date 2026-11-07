@@ -1,521 +1,213 @@
 % ============================================================
-%  CHAPTER 4 — METHODOLOGY (PROPOSAL)
-%
-%  Proposed reorganization (simulator-first, then RL, PLR last):
-%
-%   4.1  Overview                          (NEW — orients the reader)
-%   4.2  The High-Throughput GPU Simulator (the enabling artifact)
-%        4.2.1 Simulator state and step interface
-%        4.2.2 Physics model
-%        4.2.3 Batching and rollout collection
-%   4.3  Problem Formulation               (centralized-joint-control MDP)
-%        4.3.1 State and observation space
-%        4.3.2 Action space
-%        4.3.3 Reward function
-%        4.3.4 Transition and discount
-%   4.4  Policy Architecture               (centralized joint controller; CTDE deferred to TG-2)
-%   4.5  Exploiting Symmetries
-%   4.6  Two-Stage Curriculum and Self-Play
-%   4.7  Prioritized-Level-Replay Sampler  (second contribution, own section)
-%   4.8  Tooling and Infrastructure
-%   4.9  Scope and Discarded Alternatives  (already written — keep at end)
-%
-%  Rationale: the simulator is the enabling artifact, so it comes first.
-%  The MDP formulation then describes WHAT is being learned on top of it.
-%  PLR is pulled out into its own section (not buried among RL details)
-%  because it is the planned sample-selection mechanism for TG-2.
+%  CHAPTER 4 -- METHODOLOGY
+%  Drafted against vsss-sim src/vsss_sim/rl/{ppo,self_play,evaluate}.py,
+%  envs/{brandao_observation,match_rules,jumanji}.py (working tree 2026-11-03).
+%  TODO(results): hyperparameter table must match the config files of the runs actually reported.
+%  Settings fixed by the author (experiment27): brandao_shared, mirror augmentation ON, SIMPLIFIED referee, 10 Hz, 6 sub-steps, 100-step episodes.
 % ============================================================
 
-This chapter defines the proposed methodology, organized around a training
-loop in which a GPU-accelerated simulator generates batched rollouts, a
-\gls{ppo} learner consumes them, and an initialization mechanism determines
-which game situations to sample next.  The remaining sections cover each
-component: the simulator, the multi-agent problem formulation, policy
-architecture, symmetry exploitation, the two-stage curriculum and self-play
-scheme, the prioritized-level-replay sampler, and a closing statement of scope.
-
-% \input{Cap4/training_infra.tex}
-
-
-% ==================================================================
-\section{The Simulator}
-\label{sec:simulator}
-% ==================================================================
-
-The simulator aims to be implemented as a batched JAX environment, designed for
-speed, numerical stability, and full on-accelerator (GPU on this work) execution so that the
-entire collect-and-update loop runs without per-step transfers to host memory.
-As this is a work in progress, this section will mainly focus on the already implemented
-parts of the framwork.
-
-The training loop connects three main components.  The \textbf{environment}
-(\texttt{VSSVecEnv}) steps 1--65536 parallel matches on the JAX device via
-$\mathrm{jit}(\mathrm{vmap}(\texttt{step}))$, producing observations
-$o \in \mathbb{R}^{46}$ and rewards for each environment.  The
-\textbf{policy} (an MLP $\pi_\theta$ acting as a centralized joint controller)
-maps each observation to a joint action $a \in \mathbb{R}^{6}$ (left and right
-wheel speeds for all three robots).  Collected trajectories $(o, a, r,
-\text{done})$ cross a Gymnasium$\leftrightarrow$SB3 adapter to the
-\textbf{learner} (\gls{sb3} \gls{ppo}, running on PyTorch on CPU), which updates the policy parameters $\theta$ and returns them to the policy.  On CPU-only hardware (e.g.\ the Apple M4 Pro), the JAX environment and the SB3 learner share the same memory and no cross-device transfer occurs.  On GPU hardware (e.g.\ the NVIDIA RTX 3060), the environment runs on the GPU while SB3 runs on the CPU, so the Gymnasium$\leftrightarrow$SB3 adapter incurs a per-step host--device transfer — the same overhead the batched simulator removes within the collection loop.
-
-As a preparation, the simulator \textbf{initialization module}
-was designed in such a way that it can supply initial game states to the environment
-at episode reset; two modes are currently supported (kickoff and random
-placement), with the interface designed to accept a future \gls{plr} sampler
-as a drop-in replacement. Experiment metrics (per-generation reward, episode
-length, throughput, and policy checkpoints) are logged via MLflow using SB3 callback functions.
-
-% ------------------------------------------------------------------
-\subsection{Simulator State and Step Interface}
-% ------------------------------------------------------------------
-
-A simulator state stores the poses and velocities of the six robots, the
-position and velocity of the ball, the score, episode timers, and the
-pseudo-random generator keys.  In the JAX backend this state is an immutable
-\texttt{NamedTuple} PyTree, which makes it directly compatible with
-\texttt{jax.vmap} batching.  The environment exposes two functions:
-%
-\begin{itemize}
-    \item \texttt{reset(key)} initializes one or more game states according to
-    the selected initialization mode;
-    \item \texttt{step(state, action)} advances the physics by one timestep and
-    returns the next state together with observations, rewards, termination
-    flags, and diagnostic information.
-\end{itemize}
-
-% ------------------------------------------------------------------
-\subsection{Physics Model}
-\label{sec:physics_model}
-% ------------------------------------------------------------------
-
-The physics model is two-dimensional and hand-crafted as batched array
-operations, chosen for both throughput and simplicity of implementation.  It
-covers differential-drive kinematics, ball dynamics under friction, robot–ball
-and robot–robot contact, and wall and goal handling on an IEEE VSSS field.
-Numeric dimensions follow the competition specification and are centralized in
-the simulator configuration module; run-specific training overrides are
-reported in Table~\ref{tab:smoke_config}.  Tunable physical constants —
-friction coefficients, restitution parameters, and robot dimensions — are
-calibrated to match the standard FIRASim configuration~\cite{firasim2019}.
-This alignment serves two purposes: it makes the new simulator directly
-comparable to FIRASim as a reference environment, and it prepares a future
-physics-fidelity evaluation in which a policy trained here is tested inside
-FIRASim to measure the transfer gap between this \gls{jax} based engine
-and the original C++/ODE based engine.
-
-The model deliberately omits vertical dynamics, wheel slip, and detailed motor
-controller equations.  Some of these omissions reflect the early stage of the
-implementation rather than a permanent decision; additional effects may be
-incorporated in future iterations while preserving the 2D, vector-first
-architecture.  The subsections below state the rationale for each modelling
-choice that \emph{is} present.
-
-\subsubsection{Geometry, coordinates, and goals}
-
-The regulation field layout is Figure~\ref{fig:field} (Chapter~2).  In the
-simulator the origin is at the field centre, $+x$ points toward the opponent
-goal, and $+y$ is parallel to the goal line (Section~\ref{sec:ma_coords}).
-Goals are $40$\,cm openings; scoring triggers an in-episode kickoff, not a
-terminal state.
-
-Each robot is modeled as a $7.5 \times 7.5$\,cm oriented square rigid body,
-using circle--square contact for ball--robot collisions.  The square footprint
-is an approximation adopted for simplicity of collision detection, consistent
-with both the ITAndroids ODE-based simulator~\cite{tg_thiago} and
-FIRASim~\cite{firasim2019}.  In practice, some teams use non-convex or rounded
-chassis shapes to guide the ball more effectively, but this detail is not
-captured by either reference simulator and is therefore left outside the scope of
-this model.
-
-\subsubsection{Time stepping and actuation}
-
-Control commands arrive at frequency \gls{control_freq}, with each control
-step subdivided into \gls{num_substeps} physics sub-steps, so collisions and
-ball motion are integrated at $\gls{num_substeps} \cdot \gls{control_freq}$
-without increasing the policy's decision frequency.  Robots are
-\textbf{differential-drive}: normalized actions in $[-1,1]$ map to left and
-right wheel speeds, then to body-frame $(v_x, v_y, \omega)$ via the standard
-kinematic relation with wheelbase \gls{wheel_base} and maximum linear speed
-\gls{max_speed}.  Specific values for all parameters are given in
-Table~\ref{tab:sim_params}.
-
-Wheel speeds do not jump instantaneously to the commanded value.  Each
-sub-step limits the change in wheel speed to \gls{slew_limit}
-(Table~\ref{tab:sim_params}) to approximate motor torque limits, which smooths
-trajectories and avoids unphysically sharp turns when a neural policy outputs
-discontinuous commands.  Heading is wrapped to $(-\pi, \pi]$ after
-integration.
-
-\subsubsection{Contact dynamics and ball motion}
-
-Between commands, the ball experiences rolling friction and elastic-style
-impulses on walls and robots, with tunable friction and restitution
-coefficients.  Robot–wall contact clamps the
-the robot square inside the field and zeroes velocity components that point into the wall.
-Robot–robot collisions use separating axes on the square footprints with
-impulse exchange.  These rules are hand-tuned for stable, non-exploding
-contacts at VSSS speeds rather than for exact material parameters; the goal is
-repeatable interaction statistics for learning, not a calibrated multibody
-model.
-
-The simulator currently injects no noise or delay into observations or actuation.  The
-ITAndroids ODE-based simulator supports Gaussian noise injection on position
-and orientation estimates to simulate vision uncertainty~\cite{tg_thiago}, and
-\textcite{master_thay} acknowledges this capability but omits it for
-simplicity.  This work follows the same choice: noise injection, delay injection and domain
-randomization are deferred to later stages, once a competitive policy is developed
-and the focus shifts toward physical deployment.
-
-\subsubsection{Physics design choices}
-\label{sec:physics_design}
-
-Table~\ref{tab:physics_design} summarizes the main modelling decisions and
-their rationale.  Together they define the physics contract that both backends
-implement.
-
-\begin{table}[ht]
-    \centering
-    \caption{Physics design choices in the VSSS simulator.}
-    \label{tab:physics_design}
-    \small
-    \begin{tabular}{p{0.22\linewidth}p{0.38\linewidth}p{0.34\linewidth}}
-        \toprule
-        \textbf{Choice} & \textbf{Mechanism} & \textbf{Rationale} \\
-        \midrule
-        Planar 2D engine &
-        State: ball $(\gls{pos_x},\gls{pos_y},\gls{vel_x},\gls{vel_y})_{\mathrm{ball}}$; robots $(\gls{pos_x},\gls{pos_y},\gls{heading},\gls{vel_x},\gls{vel_y},\gls{angular_velocity})_{\mathrm{robot}}$ &
-        Matches top-down VSSS; enables batched array physics. \\
-        \addlinespace
-        Square rigid bodies &
-        Square footprint; circle–square for ball; SAT for robot–robot &
-        Avoids disk proxy errors at the robot's footprint scale. \\
-        \addlinespace
-        Sub-stepped integration &
-        $N_{\mathrm{sub}}$ substeps per $f_c$ control step &
-        Reduces tunneling and stabilizes contacts at max wheel speed. \\
-        \addlinespace
-        Rate-limited wheels &
-        Slew cap \gls{slew_limit} per sub-step on each wheel &
-        Models torque limits; smoother policy rollouts. \\
-        \addlinespace
-        Differential drive &
-        Wheel speeds $\rightarrow$ $(v,\omega)$ $\rightarrow$ world velocity &
-        Matches IEEE VSS hardware; action space is six wheel commands. \\
-        \addlinespace
-        Rolling ball friction &
-        Deceleration $\propto \gls{friction_coef}\, g \,\Delta t_{\mathrm{sub}}$ &
-        Ball comes to rest without explicit spin state. \\
-        \addlinespace
-        Restitution on impact &
-        Separate coeffs.\ for ball–wall, ball–robot, robot–wall &
-        Each contact pair involves different materials (ball, robot chassis, wall), so independent coefficients are physically motivated and match FIRASim's parameterisation. \\
-        \addlinespace
-        Goals without terminal &
-        Score event + kickoff reset; episode ends on step cap only &
-        A goal is not an end-of-game condition, the episode continues after reset using the kickoff mode chosen by the user until the step cap is reached. \\
-        \bottomrule
-    \end{tabular}
-\end{table}
-
-\begin{table}[ht]
-    \centering
-    \caption{Configurable simulator parameters and the values used in this
-    work.  Field dimensions and robot footprint follow the competition
-    specification and are fixed.}
-    \label{tab:sim_params}
-    \begin{tabular}{llrl}
-        \toprule
-        \textbf{Symbol} & \textbf{Description} & \textbf{Value} & \textbf{Unit} \\
-        \midrule
-        \gls{control_freq}   & Control frequency                  & $60$          & Hz \\
-        \gls{num_substeps}   & Physics sub-steps per control step & $4$           & --- \\
-        \gls{wheel_base}     & Wheelbase                          & $53$          & mm \\
-        \gls{max_speed}      & Maximum robot linear speed         & $1.30$        & m/s \\
-        \gls{slew_limit}     & Wheel angular acceleration limit   & $9.81$        & m/s$^2$ \\
-        \gls{shaping_coef}   & Reward shaping coefficient         & $0.10$        & --- \\
-        \gls{crowd_penalty_coeff} & Crowding penalty coefficient     & $-0.02$       & --- \\
-        \bottomrule
-    \end{tabular}
-\end{table}
-
-% ------------------------------------------------------------------
-\subsection{Batching and Rollout Collection}
-% ------------------------------------------------------------------
-
-The environment is vectorized across many parallel games by applying
-$\mathrm{jit}(\mathrm{vmap}(\texttt{step}))$ to a single batched state, so that
-one compiled call advances an entire batch of independent matches.  Rollouts for
-\gls{ppo} are collected by scanning the step function through time and mapping
-it across environments, keeping trajectory buffers resident on the device.
-
-%% FIGURE: on-device training loop — batched SimState → jit(vmap(step)) →
-%% observations/rewards → PPO update → next initial states (from the sampler).
-%% Place beside the Chapter 2 socket-loop figure so the architectural shift is
-%% visible; both should be your own diagrams in a consistent visual style.
+This chapter defines the methodology: how the learning problem is posed on the simulator of
+Chapter~\ref{chap:sim}.  It covers the decision problem, the policy networks, the symmetries that are exploited,
+the self-play scheme, the online curriculum that chooses which initial situations to replay, and the protocol used to
+evaluate the resulting policies.  The compiled training loop that executes this methodology is described in Section~\ref{sec:ppo}
+of Chapter~\ref{chap:sim}.  The formulation and the policy
+architecture follow \textcite{brandao2022}, the most recent
+work on multi-robot self-play for VSSS developed with ITA's LAB-SCA, so the results are comparable
+with that baseline; the curriculum and the compiled loop are
+contributions of this work.
 
 % ==================================================================
 \section{Problem Formulation}
+\label{sec:formulation}
 % ==================================================================
 
-The 3v3 \gls{vsss} task is the domain within which both contributions are
-evaluated.  In TG-1, the team is controlled by a \textbf{centralized joint
-policy}: a single network observes the full global state of all six robots and
-the ball ($\mathbb{R}^{46}$) and outputs a joint action that simultaneously
-commands all three allied robots ($\mathbb{R}^{6}$).  Although the domain is
-inherently multi-agent, this centralized formulation treats the three-robot
-team as a single composite agent, which simplifies the implementation and
-provides a clean baseline.  The observation interface is factored as a
-swappable function, so the per-robot egocentric formulation required by
-\gls{ctde} can be adopted without changes to the simulator.  This section
-defines the components of the underlying decision process: state and
-observation space, action space, reward, and transition dynamics.
+The learning agent controls the blue team (three robots) against a yellow opponent.
+Time advances in decision steps of $0.1$\,s ($10$\,Hz); an episode lasts at most
+$100$ steps ($10$\,s) and \emph{ends at the first goal}; \textcite{brandao2022} use $40$\,s episodes, and the shorter horizon is a choice of this work.  A goal
+terminates the episode, while reaching the time limit truncates it: a truncated episode keeps its bootstrap
+(the target is $r+\gamma V(s')$ with $\gamma=0.99$), whereas a terminated one has a zero bootstrap, so the last state is not treated as absorbing when only time ran out.  Each robot is an agent that observes locally and acts on its
+own wheels, but all three share one set of network weights.
 
-\label{sec:ma_coords}
-The learning frame uses the centred simulator coordinates of
-Figure~\ref{fig:field}: origin at field centre, $+x$ toward the opponent goal,
-$+y$ along the goal line.
+\subsection{Observation}
 
-% ------------------------------------------------------------------
-\subsection{State and Observation Space}
-\label{sec:obs_space}
-% ------------------------------------------------------------------
+Every robot receives its own observation, expressed in a canonical frame in which its
+team always attacks toward $+x$ (the yellow team's inputs are mirrored), so the same
+policy can play either side.  One frame has $53$ features:
+\begin{itemize}
+  \item normalized positions of the seven entities (self, two allies, three opponents, ball), $14$;
+  \item heading as $\sin\theta$, $\cos\theta$ and $\theta/\pi$, $3$;
+  \item bearings (as $\sin$, $\cos$ and normalized angle) from the robot to its two allies and three opponents, and from the ball to both goals ($7$ angles), $21$;
+  \item normalized distances from the robot to its two allies, three opponents and the ball, and from the ball to both goals, $8$;
+  \item the previous left/right wheel commands of the three allies, $6$;
+  \item the normalized time remaining, $1$.
+\end{itemize}
+The policy input stacks the last eight frames (a $0.8$\,s history) into a $424$-dimensional
+vector.  Position and heading readings are corrupted with Gaussian noise whose standard
+deviations ($1.85$\,mm and $1.68$\,mm in $x$ and $y$, and $0.031$\,rad in heading) are those that \textcite{brandao2022} report
+for the real camera pipeline, so the policy is never trained on exact state.
 
-The full simulator state is described in Section~4.2.  From it, the learning
-system builds a per-step observation vector of dimension 46, composed of the
-ball state and the state of all six robots, normalized so that equivalent
-situations have similar numerical representations.  The ball contributes its
-position and velocity; each robot contributes its position, orientation, and
-linear and angular velocity.  Orientation is encoded as the pair
-$(\sin\theta, \cos\theta)$ rather than the raw angle, to avoid the
-discontinuity at $\pm\pi$ and to give the network a smooth representation of
-heading.  Table~\ref{tab:obs} summarizes the observation layout and the
-normalization applied to each group.
+\subsection{Action}
 
-\begin{table}[ht]
-    \centering
-    \caption{Observation vector ($\mathbb{R}^{46}$) layout and normalization.
-    Positions are normalized by the half-field dimensions, linear velocities by
-    $1.5\times$ the maximum wheel speed, and angular velocity by the maximum
-    achievable rate implied by the wheelbase.}
-    \label{tab:obs}
-    \begin{tabular}{lll}
-        \toprule
-        \textbf{Indices} & \textbf{Content} & \textbf{Per element} \\
-        \midrule
-        $[0\!:\!4]$  & ball               & $\gls{pos_x}, \gls{pos_y}, \gls{vel_x}, \gls{vel_y}$ (normalized) \\
-        $[4\!:\!46]$ & 6 robots $\times$ 7 & $\gls{pos_x}, \gls{pos_y}, \sin\gls{heading}, \cos\gls{heading}, \gls{vel_x}, \gls{vel_y}, \gls{angular_velocity}$ \\
-        \bottomrule
-    \end{tabular}
-\end{table}
+Each robot outputs two numbers in $[-1,1]$, the normalized left and right wheel
+speeds (Section~\ref{sec:sim_physics}), at $10$\,Hz.  The simulator rate-limits them toward these targets
+across the physics sub-steps of the decision step.
 
-The observation construction is factored as a swappable function.  This keeps
-the interface forward-compatible with per-robot egocentric observations, which
-the multi-agent variants planned for TG-2 require, without changing the
-simulator.
+\subsection{Reward}
+\label{sec:reward}
 
-% ------------------------------------------------------------------
-\subsection{Action Space}
-\label{sec:action_space}
-% ------------------------------------------------------------------
-
-The action space is continuous.  In the baseline formulation, the policy
-controls all three allied robots through a single 6-dimensional action — a
-normalized left/right wheel-speed pair per robot, in $[-1, 1]$ — which is
-denormalized to physical units inside the backend.
-The policy controls wheel speeds directly rather than emitting a higher-level
-target position handed to an external controller.  This merges the
-path-planning and control problems into a single learned policy: it raises task
-difficulty but removes the performance ceiling that a fixed external controller
-would impose, an effect also observed in earlier VSSS control
-work~\parencite{tg_thiago, brandao2022}.
-
-A body-frame command $(v, \omega)$ converted to wheel speeds through the
-differential-drive model (Chapter~2) is an alternative interface that can make
-exploration smoother.  The methodology keeps both interfaces explicit so that
-the final implementation can compare them empirically.
-
-% ------------------------------------------------------------------
-\subsection{Reward Function}
-% ------------------------------------------------------------------
-
-The reward is team-based and shared across the three allied robots, since they
-pursue a common objective.  At its core it is sparse:
-%
+The reward is the Brand\~ao reward, Eqs.~(6)--(16) of~\cite{brandao2022}.  For robot $i$
+it combines ball progress, proximity and two angular positioning terms,
 \begin{equation}
-    r_t = g_t + \gls{shaping_coef}\,\Delta x^{b}_t,
-    \label{eq:reward}
+    r_i = 0.7\,r_{\mathrm{speed}} + 0.1\,r_{\mathrm{prox}} + 0.1\,r^{\mathrm{off}}_i + 0.1\,r^{\mathrm{def}}_i ,
 \end{equation}
-%
-where $g_t \in \{+1, -1, 0\}$ is the goal signal (scoring, conceding, or
-neither), $\Delta x^{b}_t$ is the forward progress of the ball toward the
-opponent goal during the timestep, and \gls{shaping_coef} is a small reward shaping coefficient.
-The shaping term scaffolds early learning, when goal events are too rare to
-provide useful gradient under a purely random policy.  The coefficient $\beta$
-is chosen so that $\gls{shaping_coef} \cdot L_f < 1$, where $L_f = 1.50\,\text{m}$ is the
-field length; this ensures the maximum shaping contribution over an episode is
-strictly smaller than a single goal event, so the agent is never incentivized
-to shuttle the ball indefinitely instead of scoring.  The value of $\gls{shaping_coef}$ used
-is given in Table~\ref{tab:sim_params}.  Sharing a single team reward keeps
-credit assignment simple at the cost of making the individual contribution of
-each robot harder to isolate; additional shaping terms for possession,
-positioning, and avoidance of self-blocking are left as tuning options for
-TG-2.
-
-% ------------------------------------------------------------------
-\subsection{Transition and Discount}
-% ------------------------------------------------------------------
-
-The transition dynamics are encoded entirely in the simulator and are not made
-explicitly available to the agent.  The discount factor $\gls{discount_factor} \in [0, 1)$
-weights future reward against immediate reward; its value is treated as a
-training hyperparameter and reported with the results.
+where $r_{\mathrm{speed}} = \mathrm{clip}\big((d_{k-1}-d_k-0.05)/0.14,\,-1,\,1\big)$ is the
+clipped reduction of the ball's distance $d$ to the opponent goal over one step (with a
+$5$\,cm dead zone), $r_{\mathrm{prox}} = -\min(d_{\mathrm{rb}},\,1\,\mathrm{m})$ with $d_{\mathrm{rb}}$ the distance from the nearest blue robot to the ball, and the offensive and defensive angle terms
+are $\angle/\pi - 1\in[-1,0]$, where the angles are those at the ball between the robot and the
+opponent goal and at the robot between the ball and the own goal, respectively.  The speed and
+proximity terms are shared by the team; the angle terms are per-robot.  When a goal is scored the
+continuous reward is replaced by
+\begin{equation}
+    r_{\text{goal}} = 10\,g\left(1 + \frac{H - k}{H}\right),
+\end{equation}
+with $g=+1$ for a blue goal, $-1$ for a yellow goal, horizon $H = 100$ (the episode limit) and step $k$, so earlier goals pay up to
+$20$ and conceding costs the same.  Rewards are per agent, and each robot's value function estimates its own return.
 
 % ==================================================================
 \section{Policy Architecture}
+\label{sec:policy}
 % ==================================================================
 
-The TG-1 policy is a \textbf{centralized joint controller}: a single
-\gls{mlp} receives the global $\mathbb{R}^{46}$ observation vector and
-produces the full $\mathbb{R}^{6}$ joint action — left and right wheel speeds
-for all three allied robots — in a single forward pass.  Both the actor and
-the critic share this global view.  There is no per-robot decomposition of
-the observation, no separate per-robot action head, and no decentralized
-execution at test time.
+\paragraph{Shared actor.}
+The actor is a multilayer perceptron with tanh activations ($424\to300\to200\to100$) applied to the
+observation of one robot.  Because the three robots use the same weights, the batch of three robot
+observations is processed as three samples and the team behaviour arises from the
+shared parameters acting on different local views.  The head outputs two positive parameters per wheel,
+$\alpha,\beta\ge 1$ (a softplus plus one), of a Beta distribution on $[0,1]$ that is rescaled to $[-1,1]$.  The Beta
+distribution has bounded support, which matches the actuator limits without clipping a Gaussian, and
+the deterministic policy used at evaluation time is its mean, $2\alpha/(\alpha+\beta)-1$.
 
-This centralized formulation maps directly onto a standard single-agent
-\gls{ppo} implementation and eliminates credit-assignment complexity, so that
-the throughput and sampler contributions can be evaluated in isolation.  Its
-main limitation is that the six-dimensional joint action conditions all robot
-commands on a single global representation; a per-robot formulation with
-egocentric observations and \gls{ctde} removes this constraint while keeping
-execution decentralized.  The observation construction is already factored as
-a swappable function so that this transition does not require any change to
-the simulator.
+\paragraph{Critic.}
+The value function has its own network ($424\to256\to128\to64\to1$), not shared with the actor, so
+policy and value gradients do not interfere.  The policy is the shared per-robot actor above, as in~\cite{brandao2022}.
+
+\paragraph{Mirror augmentation (used in all reported runs).}
+The field is symmetric about its long axis ($y\to-y$): reflecting an observation (negating the $y$ coordinates and the signed angular components, and swapping each robot's previous
+left/right wheel commands) must yield the mirrored action, that is, the two wheel components exchanged.  At every minibatch the loss is computed on both the original samples and their reflections, and the two gradients are averaged.  The
+old log-probabilities, values and bootstrap values that the reflected loss needs are computed on the reflected observations during the rollout, and the advantages and targets are computed for the reflected trajectory as well.  This is a
+data-augmentation signal that doubles the effective data per update at the cost of a second forward and backward pass.  \emph{All reported runs, in both curriculum conditions, use this augmentation}; no run without it is reported, so its effect is not isolated by the experiments.
 
 % ==================================================================
 \section{Exploiting Symmetries}
+\label{sec:symmetries}
 % ==================================================================
 
-Even within the centralized formulation, two classes of symmetry of the
-\gls{vsss} domain can be exploited to improve sample efficiency.
-
-\textbf{Input-ordering invariance.}  The 46-dimensional observation concatenates
-ball features followed by six robots each contributing seven features.  Because
-the robots within each team are homogeneous, any permutation of their slots in
-the input produces an equivalent game state.  For allied robots the corresponding
-two-wheel action blocks must be permuted by the same relabeling; opponent
-permutations affect only the observation.  The implementation samples independent
-allied and opponent permutations at episode reset, keeps them fixed throughout
-the episode, and maps policy actions back to the simulator's canonical ordering.
-
-\textbf{Reflection augmentation.}  The \gls{vsss} field is bilaterally symmetric
-about its longitudinal axis.  In the reflected observation, transverse positions
-and velocities, heading sine, and angular velocity change sign.  A reflected
-differential-drive command exchanges the left and right wheel speeds; it does not
-negate a transverse action component, since no such component exists in VSSS.
-
-Both mechanisms use an environment-agnostic JAX wrapper.  A domain-specific
-symmetry object defines how to sample a group element, transform observations,
-and transform actions in both directions.  At reset the wrapper samples one
-element of $C_2 \times S_3 \times S_3$ and retains it for the episode.  It presents
-transformed observations to the policy and inversely transforms actions before
-stepping the simulator, leaving rewards and termination signals unchanged.  This
-collects symmetry-augmented experience without modifying PPO's replay batch or
-violating its on-policy assumption.  The wrapper is independent of robot count and
-action semantics; migration to SSL therefore requires a new domain transform
-(including omnidirectional velocities and kick/dribble channels), not a new
-augmentation mechanism.
+The three symmetries of the game introduced in Section~\ref{sec:symmetry_theory} are used.  \emph{Permutation symmetry} is exploited by the shared policy: one network
+controls the three robots, and all three contribute transitions to its update.  \emph{Side symmetry} is exploited by the canonical frame of the observation
+(Section~\ref{sec:formulation}): each team is observed as if attacking toward $+x$, so one policy plays either side and the same weights serve as learner and as opponent.
+\emph{Reflection} about the longitudinal axis is exploited by the mirror augmentation of Section~\ref{sec:policy}, which is on in all reported runs.  The cost of parameter sharing, a pressure toward a common behaviour that limits
+role specialization, is revisited in Chapter~\ref{chap:conclusion}.
 
 % ==================================================================
-\section{Curriculum Learning and Self-Play}
+\section{Self-Play}
+\label{sec:selfplay}
 % ==================================================================
 
-Training employs a curriculum that gradually increases the difficulty and complexity of the environment as learning progresses, rather than exposing the agent to the full challenge from the outset. An initial phase may involve only the allied robots and the ball, allowing the policy to develop basic ball handling skills such as reaching, conducting, and coordinated positioning without interference. As proficiency improves, one or more opponent robots are introduced, either as stationary obstacles, simple scripted agents, or through self-play.
+The opponent is always a frozen earlier copy of the learner, so the training signal is a moving
+but never-collapsing curriculum of difficulty (the opponent improves only when the learner has surpassed it),
+a practice common to multi-agent game training~\cite{silver2017mastering,berner2019dota}.
+Following the Brand\~ao scheme, each training run holds \emph{one} opponent snapshot at a time.  The opponent starts as the
+untrained initial policy.  Every $10$ generations the current policy is evaluated against the current
+opponent in a batch of $100$ matches of $120$\,s (fixed seeds, deterministic mean actions), and snapshots are archived every $S=50$ generations or when they replace the opponent.  The opponent is replaced by the
+candidate when the mean goal difference per match reaches a threshold,
+\begin{equation}
+    \frac{1}{n}\sum_{m=1}^{n}\big(g^{\text{blue}}_m - g^{\text{yellow}}_m\big) \ge 0.6 ,
+\end{equation}
+and kept otherwise.  The value $0.6$ means the learner must clearly dominate, scoring on average more than half a goal per match more than it concedes, before the target moves, which keeps the opponent stable long enough to learn against.
 
-In self-play regimes, adversaries are sampled from current or earlier versions of the policy, ensuring that the policy faced by the allies is both challenging and representative of varied behaviors.  Opponent sampling strategies — such as always using the latest policy or mixing against a population weighted by recency or performance~\cite{master_thay,starcraft_marl} — trade off training stability against generalization to diverse opponent styles.
-
-Advancement through the curriculum can be based on various criteria, such as a fixed number of steps, reaching performance thresholds, or a combination of both. The concrete progression mechanism may be tuned to optimize training stability and efficiency, and will be finalized in subsequent development stages.
-
-% ==================================================================
-\section{Prioritized-Level-Replay Sampler}
-% ==================================================================
-
-Uniform episode initialization spends many simulator steps on situations that
-are either trivially solved or too chaotic to yield useful gradients.  The
-\gls{plr}-based sampler planned for TG-2 will address this by treating each
-game initialization as a replayable level and selecting levels according to
-their estimated learning potential, complementing the throughput gains of the
-simulator with improved transition informativeness.
-
-The intended design maintains a population of candidate \gls{vsss} scenarios,
-each defined by robot poses, ball state, and velocities.  Each scenario
-receives a priority derived from the magnitude of the value-prediction error on
-recent rollouts; episodes are then initialized from a mixture of high-priority
-scenarios and exploratory samples to prevent the agent from overfitting to a
-narrow set of situations.  The simulator's initialization interface accepts an
-external placement source as a drop-in replacement for the fixed kickoff and
-random modes, which is the insertion point this sampler will occupy.  TG-2
-will evaluate whether the sampler improves sample efficiency relative to
-uniform initialization.
+The suite also supports a larger \emph{pool} of snapshots from which each reset draws an opponent according to a mixture of
+selectors (uniform over all history, over the most recent half, the latest only, plus random and stationary baselines); the experiments of this work use the single-opponent scheme only.
 
 % ==================================================================
-\section{Tooling and Infrastructure}
+\section{Online Return-Based Curriculum}
+\label{sec:curriculum}
 % ==================================================================
 
-The implementation uses JAX for numerical computation and accelerator
-execution.  The reinforcement-learning stack is centered on \gls{ppo}, with
-rollout collection and policy updates designed to minimize transfers between
-host and device memory.  Experiment tracking records simulator throughput,
-training curves, reward components, environment counts, hardware information,
-and policy checkpoints.  The primary engineering requirement for TG-1 is that
-the simulator be \emph{measurable}: throughput is reported as steps per second
-versus the number of parallel environments, and compared against a vectorized
-\gls{cpu} baseline, in Chapter~5.
+\paragraph{Motivation.}
+With the simulator's random initialization (robots and ball placed uniformly at random) the situations vary widely in
+usefulness: some are decided instantly, and some are chaotic.  The preliminary report (TG-1) found that training on kickoff alone learns but covers little of the state
+space, whereas flat random initialization learned poorly under a sparse reward.  Prioritized level
+replay~\cite{prioritized_level_replay} addresses exactly this by replaying levels in proportion to a learning-potential score.
+The method below is a simplified, fully on-device variant of that idea.  It differs from PLR in that the score is derived from episode returns, not value-prediction error,
+and the buffer is refreshed every generation and does not persist.
 
-For rendering, the simulator uses Pygame as it is a lightweight library for 2D drawing making it well-suited for lightweight real-time visualization of
-simulation state without adding dependencies to the training path~\cite{pygame2024}.
-Pygame, in addition, is an open-source Python library, making it easy to use
-and distribute among different development environments.
+\paragraph{Levels.}
+An initial situation is fully determined by a pseudo-random key, since the random reset maps a key to robot poses
+and ball position deterministically.  A \emph{level} is therefore stored as its two-word key, and replaying it regenerates the same initial placement.
+The opponent policy, the policy's sampling noise and the camera noise are drawn afresh, so a replay revisits the situation, not the exact trajectory.
+
+\paragraph{Scoring.}
+At the end of each generation, every episode that completed during the rollout contributes its level key and its return
+$G$ (averaged over the three robots).  Returns are min--max normalized over that batch,
+$u = (G - G_{\min})/(G_{\max}-G_{\min})$, and the score is
+\begin{equation}
+    w = u\,(1-u) .
+\end{equation}
+The score is zero for the best and worst episodes of the batch and maximal for episodes near the middle of the
+return range.  The intuition is a learnability heuristic, following \textcite{rutherford2024noregrets}, who propose to train on levels that the agent can sometimes solve but not always: situations that are always won or always lost carry little
+gradient, whereas intermediate outcomes mark situations where the current policy is neither mastering nor failing.  Scoring by learnability in that sense requires an estimate of the success rate on each candidate level, which means evaluating the policy on a large set of levels before choosing among them.
+That extra evaluation would cost a large share of the budget that the fast simulator is meant to save.  The score used here therefore takes the return of an episode that was played anyway as a free proxy for that estimate:
+after min--max normalization, $u$ plays the role of a success probability and $u(1-u)$ that of learnability.  This is the simplest prioritized curriculum that fits inside the compiled loop, at the cost of noisy scores (one episode, one stochastic return).  The
+proxy is assumed, not shown to work; the ablation of Chapter~\ref{chap:results} tests only whether the resulting training is better.
+
+\paragraph{Buffer and sampling.}
+A random subset of at most $K=1024$ completed episodes of the latest rollout forms the replay buffer, replacing its previous contents.
+When an environment resets, with probability $\rho$ (the \emph{replay fraction}) it draws a level from the buffer with
+probability proportional to $w + 10^{-3}$; otherwise (or while the buffer is empty) it starts a fresh random level.  Everything
+runs inside the compiled generation, so the curriculum adds no host communication.  The configuration used here is $\rho = 0.25$, $K=1024$.
+
+\begin{enumerate}
+  \item Run the rollout; every reset draws a level from the buffer with probability $\rho$ or a fresh key otherwise.
+  \item Collect each completed episode's key and mean return.
+  \item Normalize the returns, compute $w = u(1-u)$, sample up to $K$ episodes at random.
+  \item Overwrite the buffer with these keys and scores.
+  \item Update the policy with PPO.
+\end{enumerate}
+
+\paragraph{Limitations.}
+Scores are one stochastic sample of the return, so they are noisy; the buffer has no memory beyond one generation and no staleness handling; the score is relative to the
+current batch and not comparable across generations; and the requirement that levels be reproducible from a key restricts the method to the random-initialization mode.  These are
+simplifications chosen for an implementation that fits inside a single compiled program.
 
 % ==================================================================
-\section{Scope and Discarded Alternatives}
+\section{Evaluation Protocol}
+\label{sec:eval_protocol}
 % ==================================================================
 
-The methodology reflects deliberate scoping decisions. Several reasonable
-directions were excluded so the work could concentrate on the accelerated
-simulator, the centralized training baseline, and the sample-selection path they
-enable.
+Two kinds of evidence are used.  The quantitative evaluation below gives win rates and goal differences against fixed opponents, but it is a coarse signal in this problem: a policy can improve in ways that a win rate against a stationary, random or earlier opponent
+does not resolve, and the ITAndroids classical strategy may well beat the learned team.  The main evidence of what training produces is therefore \emph{qualitative}: the behaviours that appear as generations advance.  These are observed by replaying snapshots of a lineage at chosen generations on fixed seeds, with trajectories,
+ball and robot position heat maps, and annotated frame sequences (Section~\ref{sec:behaviour}).  Qualitative observation is not a measurement, so it is reported as the author's reading of those replays, supported by the figures and by the quantitative
+curves, and not as a statistical claim.
 
-\subsection{Task-specific policies.}
-Much prior \gls{vsss} work trains policies for isolated sub-tasks (interception,
-penalty kicks), which are easier to learn and evaluate. This work instead targets
-a single policy for both offense and defense across a full 3v3 match. Team
-coordination only emerges when the policy owns the complete game, and the
-resulting difficulty is exactly what the simulator and sample-selection
-mechanism are meant to absorb.
+Training returns are not a fair measure of strength, since they depend on the curriculum and on the moving opponent.  Policies are therefore compared with a
+separate evaluator that uses fixed seeds and the deterministic mean policy, plays complete matches, and reports goals for and against.  Matches should be played both from the standard kickoff and from random
+placements, because the evaluator resets with the experiment's own initialization mode (random in the curriculum runs).  The reported
+metrics are win rate, draw rate, goal difference per match, and goals scored per match, each with a bootstrap $95\%$ confidence interval over $n$ matches.  % TODO: choose n per opponent.
+The opponents are:
+\begin{itemize}
+  \item the stationary and random baseline opponents of the simulator, as sanity checks;
+  \item earlier snapshots of the same run, to measure progress over training;
+  \item snapshots from runs with and without the curriculum, for the head-to-head comparison;
+  \item the ITAndroids classical strategy stack, run in the external Travesim simulator~\cite{travesim}, which fixes a reference not made by the same learning process; only the last trained policy of each lineage plays against it (Section~\ref{sec:itandroids_eval}).
+\end{itemize}
+For the classical-strategy comparison the Travesim physics differs from this simulator's, so the result measures transfer between simulators in
+addition to playing strength, and this is stated in Chapter~\ref{chap:results}.
 
-\subsection{Alternative learning algorithms.}
-\gls{ppo} was fixed for comparability, not superiority: the recent ITAndroids
-results \parencite{medeiros2020, tg_thay, brandao2022} all use it, keeping this
-work comparable with the team's baselines. Since the contributions are orthogonal
-to the algorithm, as a faster simulator and better initialization strategy benefit
-any on-policy method, fixing \gls{ppo} removes a degree of freedom without
-limiting generality.
+\subsection{Protocol Against the ITAndroids Classical Strategy}
+\label{sec:itandroids_eval}
 
-\subsection{Existing GPU RL frameworks.}
-General accelerated simulators (Isaac Gym, Brax) target full 3D rigid-body
-dynamics, far heavier than \gls{vsss} needs. The domain is simple enough — 2D,
-differential drive, box collisions, static walls — that a purpose-built batched
-kernel achieves higher throughput precisely because it computes less.
-
-\subsection{Wrapping the existing C++/ODE simulator.}
-The existing ODE simulators (Chapter~2) are bottlenecked architecturally —
-single-instance, CPU-bound, socket-mediated — not by tuning. No wrapper makes a
-single-threaded engine step thousands of environments on-device, so reuse would
-preserve the exact limitation the new simulator removes.
-
-\subsection{Domain randomization.}
-Varying friction, latency, and noise for transfer robustness is sequenced rather
-than discarded: it serves neither throughput nor sample efficiency, and becomes
-relevant only once a competitive policy exists and the goal shifts to physical
-deployment.
+The classical strategy plays in Travesim~\cite{travesim}, a Webots-based simulator, through a bridge: a Python harness loads a checkpoint, rebuilds the eight-frame observation history, runs inference at $10$\,Hz and converts the
+policy's commands into Travesim wheel commands, while the ITAndroids agent runs headless in its simulator-only mode with Travesim's robot geometry.  Vision, team commands and referee messages travel as protobuf over UDP.  Scoring, fouls, placements
+and kickoffs are handled by a harness that reuses this simulator's \texttt{MatchRules}, and not by the official ITAndroids referee.  In a pilot of this protocol, each checkpoint played $10$ matches of $120$\,s against the \texttt{EXTREME\_OFFENSIVE} strategy, in five paired seeds with the policy
+playing five matches as each color; all matches were logged with checkpoint hashes.  The same protocol is applied here, only to the last policy of each lineage, because this code base is not easily parallelized.  
+Its limits are those of the pilot: the referee and restart behaviour are simplified, the two systems run at different control rates, and the ITAndroids agent can request wheel speeds above Travesim's $68$\,rad/s limit, which are then clipped.  The result is therefore a comparison of a reference strength, not a tournament-grade ranking.

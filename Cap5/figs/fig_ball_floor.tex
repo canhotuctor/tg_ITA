@@ -1,0 +1,42 @@
+% Ball floor contact: skid -> roll (vsss_sim/physics/jax_backend.py: _ball_floor, _contact_friction)
+\begin{figure}[htbp]
+    \centering
+    \subfloat[Side view of a skidding ball.]{%
+    \begin{tikzpicture}[scale=1]
+        \def\r{1.1}
+        \fill[wall] (-2.2,-0.3) rectangle (2.6,0);
+        \draw[thick] (-2.2,0) -- (2.6,0);
+        \draw[ballbody] (0,\r) circle (\r);
+        \fill (0,\r) circle (1.2pt);
+        \draw[vel] (0,\r) -- (1.7,\r) node[right] {$\mathbf v$};
+        \draw[vel] ([shift={(0,\r)}]150:0.6) arc[start angle=150, end angle=30, radius=0.6];
+        \node[above] at ([shift={(0,\r)}]90:0.6) {$\omega_y$};
+        \draw[fimp] (0,0.02) -- (-1.2,0.02) node[above] {$-p\,\hat{\mathbf u}$};
+        \fill (0,0) circle (1.5pt) node[below right=1pt and 0pt, font=\small] {$P$};
+        \draw[vel, densely dashed] (0,-0.55) -- (1.1,-0.55) node[right] {\small slip $\mathbf u = \mathbf v - r\omega_y\hat{\mathbf x}$};
+        \draw[aux] (0,0) -- (0,-0.55);
+        \node[font=\small] at (1.6,2.15) {$\hat{\mathbf n}=\hat{\mathbf z}$};
+    \end{tikzpicture}}%
+    \hfill
+    \subfloat[Speed of the centre and of the surface.]{%
+    \begin{tikzpicture}[scale=1]
+        \fill[black!6] (0,0) rectangle (1.6,3.2);
+        \draw[->] (0,0) -- (5.3,0) node[below] {$t$};
+        \draw[->] (0,0) -- (0,3.4) node[above] {speed};
+        \node[font=\scriptsize] at (0.8,0.25) {skid};
+        \node[font=\scriptsize] at (3.3,0.25) {roll};
+        \draw[aux] (1.6,0) node[below] {$t_s$} -- (1.6,3.2);
+        \draw[aux] (0,2.143) node[left] {$\tfrac{1}{1+k}v_0$} -- (1.6,2.143);
+        \node[left] at (0,2.8) {$v_0$};
+        \draw[very thick, orange!70!black] (0,2.8) -- (1.6,2.143) -- (5,1.93)
+            node[pos=0.55, below, font=\small] {$\lVert\mathbf v\rVert$, slope $-\mu_r g$};
+        \draw[very thick, teal!60!black] (0,0) -- (1.6,2.143);
+        \node[font=\small, teal!60!black, right] at (0.75,0.8) {$r\omega_y$, slope $\mu g/k$};
+        \node[font=\small, orange!70!black, above right] at (0.7,2.5) {slope $-\mu g$};
+    \end{tikzpicture}}
+    \caption{Floor contact.  (a)~Friction at the contact point $P$ opposes the slip
+    $\mathbf u$; it slows the centre and spins the ball up.  (b)~Slip vanishes at
+    $t_s = k v_0 / ((1+k)\mu g)$, after which the ball rolls without slipping and loses
+    speed only to rolling resistance.}
+    \label{fig:ball_floor}
+\end{figure}

@@ -1,51 +1,138 @@
-\section{Summary}
+% ============================================================
+%  CHAPTER 6 -- RESULTS
+%  SCAFFOLD: every number must come from a logged run. Cells marked -- and \todo-style comments are
+%  placeholders. Figures are produced by scripts/plot_ablation.py from outputs/experiments/*/metrics.jsonl.
+%  Experiment plan (from the user, 2026-11): GPU machine, limited time, so prioritise
+%    (1) curriculum ablation  (2) fixed-opponent evaluation  (3) classical-strategy evaluation.
+% ============================================================
 
-This TG-1 report delivers the contributions stated in
-Section~\ref{sec:contributions}: an accelerated simulator and a centralized
-joint-policy training baseline for 3v3 IEEE Very Small Size Soccer.  The
-throughput measurements show that the batched JAX design substantially exceeds
-the conventional CPU-based, socket-mediated architecture, while the training
-runs confirm that the simulator can support an end-to-end \gls{ppo} loop rather
-than only fast isolated stepping.
+This chapter reports the experiments that support the claims of Section~\ref{sec:contributions}.
 
-The training results also clarify the next methodological step.  Kickoff
-initialization produces reliable learning, whereas uniform random
-initialization fails to provide enough useful signal.  This contrast motivates
-the prioritized-level-replay sampler as the TG-2 mechanism for choosing
-informative initial situations.
+% ==================================================================
+\section{Experimental Setup}
+\label{sec:setup}
+% ==================================================================
 
-\section{Roadmap to TG-2}
+Two experiments were run, differing only in the curriculum replay fraction: $\rho=0$ (uniform random restarts) and $\rho=0.25$.  Each trains $16$ independent lineages (separate networks, opponents and random streams) for $3000$ generations
+with the \texttt{brandao\_shared} policy, the Brand\~ao reward, random initialization, mirror augmentation, the \texttt{SIMPLIFIED} referee, $10$\,Hz control with $6$ physics sub-steps, $1024$ parallel environments per lineage, rollouts of $128$ steps and episodes of $10$\,s
+(Table~\ref{tab:ppo_hparams}), and single-opponent self-play (Section~\ref{sec:selfplay}).  Each lineage therefore generates $\approx 3.9\times10^{8}$ decision steps.  The runs used one NVIDIA GPU (\textcolor{red}{TODO: model, driver, JAX/Flax/Optax versions}) for \textcolor{red}{TODO} hours.
+Curves show the mean and the min--max band over the $16$ lineages of a condition.  The physics is that of the \texttt{experiment27} branch of the simulator.
+Mirror augmentation is on in both conditions, so the ablation isolates the curriculum and not the augmentation.
 
-The concrete TG-2 experiments are detailed in
-Section~\ref{sec:future_planned_results}: closing the end-to-end throughput gap
-with a JAX-native learner, evaluating the
-prioritized-level-replay sampler, extending the curriculum to self-play,
-measuring symmetry-aware improvements, and comparing the learned team against
-the ITAndroids classical strategy stack.  Together, these experiments will
-determine whether the simulator and training infrastructure built in TG-1 can
-produce a robust, competitive 3v3 \gls{vsss} team policy and define the next
-steps toward eventual deployment.
+% ==================================================================
+\section{Simulator Results}
+\label{sec:sim_results}
+% ==================================================================
 
-Table~\ref{tab:gantt} shows the planned schedule for the TG-2 development period.
+The physics validation and throughput of the simulator are reported in Sections~\ref{sec:sim_validation} and~\ref{sec:sim_throughput}.  This section adds only the
+cost of the complete training generation, which is what limits the experiments below.
 
-\definecolor{ganttblue}{RGB}{70,130,180}
+% TODO(results): one row per N: seconds per generation, env steps/s, agent transitions/s from performance.jsonl of the real runs.
+
+% ==================================================================
+\section{Curriculum Ablation}
+\label{sec:ablation}
+% ==================================================================
+
+\textbf{Question.} Does replaying initial situations by the return-based score improve learning compared with uniformly random restarts, for the same number of environment steps?
+
+\textbf{Protocol.} Conditions: $\rho = 0$ (uniform random restarts) and $\rho = 0.25$ (the proposed curriculum).  Same budget; 16 lineages each.  Reported: (i) mean episode return and goal rate against environment steps
+(training curves); (ii) the strength of the final policies in the evaluation matches of Section~\ref{sec:fixed_eval}, which is the comparison that matters, because training returns are not comparable between curricula;
+(iii) buffer diagnostics: fraction of resets that replayed a level, buffer occupancy, and the min and max return of the scoring batch.
+
+\begin{figure}[ht]
+    \centering
+    % \includegraphics[width=0.9\textwidth]{Cap5/ablation_returns.pdf}
+    \fbox{\parbox{0.8\textwidth}{\centering\vspace{2cm}\textbf{TODO(results)}: training curves, $\rho=0$ vs.\ $\rho=0.25$\vspace{2cm}}}
+    \caption{Mean episode return and goal rate against environment steps for each curriculum condition (mean and range over the 16 lineages).}
+    \label{fig:ablation_curves}
+\end{figure}
+
 \begin{table}[ht]
     \centering
-    \caption{TG-2 planned schedule (Jun--Nov 2026).  Shaded cells indicate the
-    months in which each task is active.}
-    \label{tab:gantt}
-    \setlength{\tabcolsep}{6pt}
-    \begin{tabular}{l|cccccc}
+    \caption{Head-to-head evaluation of final policies (\textbf{TODO(results)}).  Win/draw/loss and goal difference per match, with $95\%$ bootstrap intervals.}
+    \label{tab:ablation_h2h}
+    \small
+    \begin{tabular}{lrrrr}
         \toprule
-        \textbf{Task} & \textbf{Jun} & \textbf{Jul} & \textbf{Aug} & \textbf{Sep} & \textbf{Oct} & \textbf{Nov} \\
+        \textbf{Condition} & \textbf{Win} & \textbf{Draw} & \textbf{Loss} & \textbf{Goal diff.} \\
         \midrule
-        Finish TG-1               & \cellcolor{ganttblue!70} &                          &                          &                          &                          &                          \\
-        JAX-native learner        & \cellcolor{ganttblue!70} & \cellcolor{ganttblue!70} &                          &                          &                          &                          \\
-        PLR sampler               &                          & \cellcolor{ganttblue!70} &                          &                          &                          &                          \\
-        Symmetry exploitation     &                          & \cellcolor{ganttblue!70} & \cellcolor{ganttblue!70} &                          &                          &                          \\
-        Self-play curriculum      &                          & \cellcolor{ganttblue!70} & \cellcolor{ganttblue!70} &                          &                          &                          \\
-        Evaluation \& comparison  &                          &                          & \cellcolor{ganttblue!70} & \cellcolor{ganttblue!70} & \cellcolor{ganttblue!70} & \cellcolor{ganttblue!70} \\
-        TG-2 writing              &                          &                          &                          &                          & \cellcolor{ganttblue!70} & \cellcolor{ganttblue!70} \\
+        $\rho=0.25$ vs.\ $\rho=0$ & -- & -- & -- & -- \\
         \bottomrule
     \end{tabular}
 \end{table}
+
+\textbf{Reading the result.}  A positive result supports using the curriculum under this compute budget and simulator; a null or negative result is reported as such and says something about the return-based score.  Neither
+shows that the score identifies the \emph{most} informative situations, which would need a separate diagnostic (for instance, comparing against random scores of the same buffer).
+
+% ==================================================================
+\section{Self-Play Training Dynamics}
+\label{sec:selfplay_dynamics}
+% ==================================================================
+
+% TODO(results): from metrics.jsonl: generations at which the opponent was replaced (opponent_replaced), mean goal delta at each evaluation (opponent_evaluation_mean_goal_delta).
+% Figure: goal delta against generation, with promotion events marked. Optional: cross-play matrix of snapshots (win rate of row vs. column).
+
+% ==================================================================
+\section{Emergent Behaviour Across Generations}
+\label{sec:behaviour}
+% ==================================================================
+
+The main evidence of what the training produces is qualitative.  Replaying snapshots of a lineage at increasing generations shows a progression of behaviours, each building on the previous one, that no scalar metric captures well:
+\begin{enumerate}
+  \item \textbf{Shooting.}  The earliest useful behaviour is to drive the ball toward the opponent goal and shoot, ignoring the opponent.
+  \item \textbf{Blocking.}  Once opponents also shoot, robots learn to place themselves between the ball and their own goal and to block shots.
+  \item \textbf{Positioning for second balls.}  Robots anticipate rebounds: they position themselves where the ball is likely to go after a blocked or deflected shot, instead of following the ball.
+  \item \textbf{Role differentiation.}  Even though the three robots share one set of weights, different roles emerge from their different local observations, for instance one robot staying back to defend while another presses the ball.
+\end{enumerate}
+\textcolor{red}{TODO: confirm and complete this list from the final runs; give the generation at which each behaviour first appears in a representative lineage, and whether the order is the same across the 16 lineages and in both curriculum conditions.}
+
+\begin{figure}[ht]
+    \centering
+    \fbox{\parbox{0.8\textwidth}{\centering\vspace{2cm}\textcolor{red}{TODO(results)}: frame sequences and position heat maps of one lineage at the generations of each behaviour\vspace{2cm}}}
+    \caption{Behaviours of one lineage at increasing generations (replays on fixed seeds).}
+    \label{fig:behaviour}
+\end{figure}
+
+Role differentiation under shared weights is a claim that can be checked and not only watched.  \textcolor{red}{TODO (optional): quantify it, for instance by the distribution of each robot's distance to its own goal or its rank by distance to the ball over replayed matches, to show that the roles are consistently different and not a viewing impression.}
+Whether the curriculum changes when or whether these behaviours appear is compared qualitatively between the two conditions with the same replays.  A more complex behaviour does not always mean a better one against a given opponent, which is why this section is read together with Section~\ref{sec:fixed_eval}.
+
+% ==================================================================
+\section{Evaluation Against Fixed Opponents}
+\label{sec:fixed_eval}
+% ==================================================================
+
+Protocol of Section~\ref{sec:eval_protocol}.
+
+\begin{table}[ht]
+    \centering
+    \caption{Final policy against fixed opponents (\textbf{TODO(results)}); $n=$ \textcolor{red}{TODO} matches each.}
+    \label{tab:fixed_eval}
+    \small
+    \begin{tabular}{lrrrr}
+        \toprule
+        \textbf{Opponent} & \textbf{Win} & \textbf{Draw} & \textbf{Loss} & \textbf{Goal diff.} \\
+        \midrule
+        Stationary             & -- & -- & -- & -- \\
+        Random                 & -- & -- & -- & -- \\
+        Initial snapshot       & -- & -- & -- & -- \\
+        ITAndroids classical (Travesim)\textsuperscript{$\dagger$} & -- & -- & -- & -- \\
+        \bottomrule
+    \end{tabular}
+
+    \smallskip
+    {\footnotesize $\dagger$ Only the last trained policy of each lineage is evaluated against ITAndroids, because that code base is not easily parallelized (Section~\ref{sec:itandroids_eval}).}
+\end{table}
+
+% ==================================================================
+\section{Discussion and Limitations}
+\label{sec:discussion}
+% ==================================================================
+
+% TODO: after results. Points to cover honestly:
+%  - fidelity of the simulator to real robots is untested (no sensing delay, latency, calibration); Travesim result mixes strength and sim transfer;
+%  - throughput gain is partly due to the 2D model and not only to batching;
+%  - effect sizes and intervals over 16 lineages;
+%  - the curriculum score is a heuristic; the buffer lacks memory and staleness handling;
+%  - the shared-weights policy limits role specialization.
+

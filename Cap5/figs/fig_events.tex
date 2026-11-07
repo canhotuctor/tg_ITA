@@ -1,0 +1,61 @@
+% Event loop and goal criterion (swept_collisions.advance_ball)
+\begin{figure}[htbp]
+    \centering
+    \subfloat[Goal line versus post (top view).]{%
+    \begin{tikzpicture}[scale=0.105]
+        \def\r{2.135}
+        \fill[green!50!black, opacity=0.15] (75+\r,-20+\r) rectangle (85-\r,20-\r);
+        \fill[wall] (75,20) rectangle (76.5,27);
+        \fill[wall] (75,-20) rectangle (76.5,-27);
+        \fill[wall] (75,20) rectangle (86.5,21.5);
+        \fill[wall] (75,-20) rectangle (86.5,-21.5);
+        \fill[wall] (85,-21.5) rectangle (86.5,21.5);
+        \draw[thick] (75,27) -- (75,20) -- (85,20) -- (85,-20) -- (75,-20) -- (75,-27);
+        \draw[densely dotted] (75,20) -- (75,-20);
+        \draw[aux] (75+\r,-25) -- (75+\r,27) node[above, font=\scriptsize] {$x=\tfrac{L}{2}+r$};
+        \node[font=\scriptsize, green!40!black, rotate=90] at (82,0) {goal region};
+        % goal path
+        \draw[aux] (55,-8) -- (78.2,0.5);
+        \draw[vel] (55,-8) -- (62,-5.44);
+        \draw[ballbody] (75+\r,-0.28) circle (\r);
+        \node[font=\scriptsize, align=left, below] at (58,-10.5) {whole ball across:\\goal event};
+        % post path
+        \draw[aux] (58,11.8) -- (72.99,19.27);
+        \draw[vel] (58,11.8) -- (64,14.79);
+        \draw[ballbody] (72.99,19.27) circle (\r);
+        \fill (75,20) circle (12pt);
+        \draw[vel] (72.99,19.27) -- (64.5,17.4);
+        \node[font=\scriptsize, align=left, above] at (60,21) {post vertex hit first:\\bounce, no goal};
+    \end{tikzpicture}}%
+    \hfill
+    \subfloat[Earliest-event loop within one sub-step.]{%
+    \begin{tikzpicture}[scale=1, every node/.style={font=\small}]
+        \def\L{4.5}
+        \foreach \y/\s/\lab in {0/0/{pass 1}, -1.1/0.35/{pass 2}, -2.2/0.8/{pass 3}}{
+            \node[left] at (-0.2,\y) {\lab};
+            \draw[black!25, line width=3pt] (0,\y) -- (\s*\L,\y);
+            \draw[thick] (\s*\L,\y) -- (\L,\y);
+        }
+        \draw (0,0.15) -- (0,-0.15) node[below] {$0$};
+        \draw (\L,0.15) -- (\L,-0.15) node[below] {$\delta t$};
+        % pass 1
+        \fill[red!70!black] (0.35*\L,0) circle (3pt) node[above] {robot};
+        \draw[thick] (0.62*\L,0) circle (3pt) node[above] {wall};
+        \node[right] at (\L+0.1,0) {goal: none};
+        % pass 2
+        \fill[red!70!black] (0.8*\L,-1.1) circle (3pt) node[above] {wall};
+        % pass 3
+        \node[right] at (\L+0.1,-2.2) {free motion};
+        \draw[vel] (0.35*\L,-0.25) -- (0.35*\L,-0.9);
+        \draw[vel] (0.8*\L,-1.35) -- (0.8*\L,-2.0);
+        \node[align=center, font=\scriptsize] at (0.5*\L,-3.1)
+            {\textbullet~selected (impulse applied) \quad $\circ$~candidate discarded};
+    \end{tikzpicture}}
+    \caption{Event handling of the swept ball.  (a)~A goal candidate requires the
+    whole ball beyond the goal line inside the mouth (shaded); a wall or post event
+    earlier in the sub-step takes precedence.  (b)~Each pass casts the remaining
+    motion against all walls, robots and goal lines, advances to the earliest
+    approaching candidate, applies its impulse and recasts the rest; at most four
+    passes run per sub-step.}
+    \label{fig:events}
+\end{figure}

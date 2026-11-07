@@ -1,739 +1,458 @@
 % ============================================================
-%  CHAPTER 5 — RESULTS
-%  Two top-level sections:
-%    1. Preliminary Results  (what is built and measured for TG-1)
-%    2. Future Planned Results (what is deferred to TG-2)
+%  CHAPTER 5 -- THE SIMULATOR AND TRAINING SUITE
+%  Drafted against vsss-sim working tree (master + uncommitted physics changes, 2026-11-03).
+%  Items marked TODO(results) need numbers from the GPU machine; TODO(cite) need a bib entry.
 % ============================================================
 
-This chapter reports the results achieved in TG-1 and outlines the results
-planned for TG-2.  Because the central TG-1 deliverable is the simulator
-infrastructure rather than a trained policy, the preliminary results focus on
-the simulator's measured throughput, its interface and architecture, and the
-status of the prioritized-level-replay sampler.  The planned results describe
-the experiments that this infrastructure was built to enable.
+This chapter describes the simulator that produces the experience used in the
+rest of this work.  The design goal is a VSSS 3v3 environment that is
+(i)~fast enough to run thousands of matches in parallel on one accelerator,
+(ii)~physically accurate where learning is sensitive to physics, namely the contacts
+among ball, robots and walls, and (iii)~rule-consistent, so that goals,
+kickoffs and referee stoppages mean the same thing in every interface.
+Section~\ref{sec:sim_arch} gives the architecture, Section~\ref{sec:sim_physics}
+the physics, Section~\ref{sec:sim_rules} the match rules, and
+Sections~\ref{sec:sim_validation} and~\ref{sec:sim_throughput} the validation and
+throughput.  Section~\ref{sec:ppo} then describes the training suite built on top of it, in which rollout, advantage estimation and
+optimization run as one compiled program on the same device.  This chapter is the engineering core of the work: it supersedes the simpler simulator and the
+centralized training baseline of the preliminary report (TG-1), whose physics model and training loop were far less complete.
 
 % ==================================================================
-\section{Preliminary Results}
+\section{Design and Architecture}
+\label{sec:sim_arch}
 % ==================================================================
 
-% ------------------------------------------------------------------
-\subsection{Simulator Throughput}
-% ------------------------------------------------------------------
-
-Throughput is reported as environment steps per second as a function of the
-execution path and the number of parallel environments.  All measurements are taken after \gls{jit} warm-up (the initial call to
-a \texttt{jit}-compiled function that triggers XLA ahead-of-time compilation,
-followed by a short sequence of additional calls to drain JAX's asynchronous
-execution queue), so that this one-time compilation cost is excluded from the
-steady-state throughput figures.  Two hardware configurations were benchmarked,
-reflecting the dual development and training setup described in Chapter~4: a
-MacBook with an Apple M4 Pro chip, used for CPU execution during development,
-and an Ubuntu~22.04 workstation with an NVIDIA RTX~3060 GPU, used for
-accelerated experiments.
-
-\subsubsection{Physics Throughput}
-
-The first benchmark isolates the simulator physics from the learning system.
-This measurement uses the raw JAX stepping kernel
-($\mathrm{jit}(\mathrm{vmap}(\texttt{step}))$), without Gymnasium wrapping,
-policy inference, rollout storage, or gradient updates.  No directly comparable
-baseline is available in prior VSSS work, because the ODE-based simulators
-discussed in Chapter~2 report training duration rather than raw physics-kernel
-throughput.  This benchmark therefore measures the throughput ceiling achievable by
-expressing the VSSS dynamics as batched array operations.
-
-Table~\ref{tab:throughput_physics} reports the full measured raw physics
-throughput on the Apple~M4~Pro as the number of parallel environments is swept
-from $1$ to $1024$.  Throughput is computed as
-$\text{steps/s} = n_{\mathrm{envs}} n_{\mathrm{steps}} / T$, where $T$ is the
-total benchmark latency.  The latency columns report the corresponding
-per-call latency of one batched simulator step, i.e., $T/n_{\mathrm{steps}}$,
-summarized by its trimmed mean and standard deviation, its median, and its
-95th percentile.  The throughput rises steeply with batch size and then
-saturates near $3.1 \times 10^{5}$ steps per second once the kernel is
-compute-bound: roughly $3.0 \times 10^{5}$ steps per second is already reached
-at $256$ parallel environments.  The JIT compilation cost is a one-time
-approximately 0.2\,s and is excluded from the steady-state numbers.  On the
-RTX~3060, the same batched execution model scales to far larger batches and
-reaches a peak of $5.4 \times 10^{6}$ steps per second at $4096$
-parallel environments, more than an order of magnitude above the CPU ceiling.
-Beyond that batch size the throughput recedes (to
-$4.0 \times 10^{6}$ at $65536$) as the working set saturates the GPU's
-memory bandwidth.  Table~\ref{tab:throughput_physics_rtx} reports the full
-sweep up to $65536$ parallel environments.
+\paragraph{Functional state.}
+The simulation state is an immutable JAX pytree and a step is a pure function
+$s_{k+1} = \mathrm{step}(s_k, a_k)$, which allows it to be compiled with
+\texttt{jit}, batched with \texttt{vmap} and rolled out with \texttt{lax.scan}
+without leaving the accelerator~\cite{jax2018github}.  All physics arrays are
+\texttt{float32}.  Table~\ref{tab:sim_state} lists the state fields.
 
 \begin{table}[ht]
     \centering
-    \caption[Raw physics throughput of the JAX kernel (Apple~M4~Pro).]{Raw
-    physics throughput of the JAX stepping kernel
-    ($\mathrm{jit}(\mathrm{vmap}(\texttt{step}))$) on the Apple~M4~Pro, after
-    JIT warm-up, versus the number of parallel environments.  Latency columns
-    are the per-call cost of one batched step ($T/n_{\mathrm{steps}}$, with the
-    top~5 and bottom~5\% of samples trimmed for outlier elimination); throughput is
-    $n_{\mathrm{envs}}\,n_{\mathrm{steps}}/T$. These measurements isolate the
-    batched stepping kernel and do not include learner overhead.
-    The used $n_{\mathrm{steps}}$ for this benchmark was 1000.}
-    \label{tab:throughput_physics}
-    \begin{tabular}{rrrrrr}
+    \caption{Physics state (\texttt{SimState}) of one match.}
+    \label{tab:sim_state}
+    \small
+    \begin{tabular}{lll}
         \toprule
-        \textbf{$n_{\mathrm{envs}}$} & \textbf{JIT compile} &
-        \textbf{Latency (mean$\pm$std)} & \textbf{Median} & \textbf{p95} &
-        \textbf{Steps/s} \\
-         & (ms) & ($\mu$s) & ($\mu$s) & ($\mu$s) & \\
+        \textbf{Field} & \textbf{Shape} & \textbf{Content} \\
         \midrule
-        $1$    & $208$ & $29.1 \pm 3.4$     & $30.1$   & $37.6$   & $33{,}241$  \\
-        $8$    & $158$ & $53.5 \pm 3.1$     & $54.5$   & $61.5$   & $146{,}902$ \\
-        $32$   & $175$ & $144.4 \pm 7.0$    & $145.9$  & $157.0$  & $219{,}366$ \\
-        $64$   & $164$ & $332.4 \pm 122.7$  & $291.2$  & $837.6$  & $219{,}805$ \\
-        $128$  & $163$ & $500.1 \pm 20.8$   & $501.4$  & $559.1$  & $255{,}308$ \\
-        $256$  & $164$ & $861.9 \pm 36.3$   & $857.4$  & $980.7$  & $298{,}564$ \\
-        $512$  & $165$ & $1670.9 \pm 101.5$ & $1650.0$ & $1921.0$ & $310{,}311$ \\
-        $1024$ & $177$ & $3294.2 \pm 172.6$ & $3273.3$ & $3734.3$ & $312{,}831$ \\
+        \texttt{ball}          & $(4)$     & $x,\,y,\,v_x,\,v_y$ \\
+        \texttt{robots}        & $(2,3,6)$ & $x,\,y,\,\theta,\,v_x,\,v_y,\,\omega$ per robot \\
+        \texttt{wheel\_speeds} & $(2,3,2)$ & last applied left/right wheel speeds (m/s) \\
+        \texttt{ball\_spin}    & $(3)$     & angular velocity $(\omega_x,\omega_y,\omega_z)$ \\
+        \texttt{ball\_vertical}& $(2)$     & height $z$ and vertical velocity $v_z$ \\
+        \texttt{score}, \texttt{t} & $(2)$, $()$ & goals per team, elapsed time \\
         \bottomrule
     \end{tabular}
 \end{table}
 
-\begin{table}[ht]
-    \centering
-    \caption[Raw physics throughput of the JAX kernel (NVIDIA~RTX~3060).]{Raw
-    physics throughput of the JAX stepping kernel
-    ($\mathrm{jit}(\mathrm{vmap}(\texttt{step}))$) on the NVIDIA~RTX~3060, after
-    JIT warm-up, swept to the much larger batch sizes the GPU can sustain.
-    Columns mirror Table~\ref{tab:throughput_physics}.
-    The used $n_{\mathrm{steps}}$ for this benchmark was 1000.}
-    \label{tab:throughput_physics_rtx}
-    \begin{tabular}{rrrrrr}
-        \toprule
-        \textbf{$n_{\mathrm{envs}}$} & \textbf{JIT compile} &
-        \textbf{Latency (mean$\pm$std)} & \textbf{Median} & \textbf{p95} &
-        \textbf{Steps/s} \\
-         & (ms) & ($\mu$s) & ($\mu$s) & ($\mu$s) & \\
-        \midrule
-        $1$     & $1241$ & $308.9 \pm 14.0$    & $316.2$   & $331.9$   & $3{,}162$     \\
-        $8$     & $1114$ & $314.5 \pm 9.4$     & $316.5$   & $330.6$   & $25{,}278$    \\
-        $32$    & $1508$ & $337.2 \pm 13.9$    & $345.7$   & $357.7$   & $92{,}566$    \\
-        $64$    & $1493$ & $342.3 \pm 14.4$    & $335.0$   & $369.5$   & $191{,}033$   \\
-        $128$   & $1093$ & $342.8 \pm 14.3$    & $349.8$   & $360.7$   & $365{,}947$   \\
-        $256$   & $1143$ & $353.7 \pm 11.7$    & $358.7$   & $371.9$   & $713{,}769$   \\
-        $512$   & $1406$ & $374.0 \pm 12.4$    & $377.7$   & $395.4$   & $1{,}355{,}645$ \\
-        $1024$  & $1011$ & $381.8 \pm 6.9$     & $383.4$   & $395.9$   & $2{,}670{,}589$ \\
-        $4096$  & $1200$ & $744.8 \pm 27.7$    & $752.8$   & $791.3$   & $5{,}441{,}342$ \\
-        $16384$ & $1376$ & $3317.1 \pm 305.4$  & $3241.4$  & $4357.8$  & $5{,}054{,}679$ \\
-        $65536$ & $1463$ & $16631.1 \pm 977.3$ & $16530.0$ & $19108.4$ & $3{,}964{,}673$ \\
-        \bottomrule
-    \end{tabular}
-\end{table}
+\paragraph{Three front-ends, one set of rules.}
+The physics step is wrapped by three environment front-ends
+(Figure~\ref{fig:sim_arch}).  \texttt{VSSEnv} is a single-match Gymnasium
+environment with a Pygame~\cite{pygame2024} renderer and Python opponent callables;
+\texttt{VSSVecEnv} is a batched Gymnasium \texttt{VectorEnv} for external
+clients; and \texttt{VSSJumanjiEnv} is a pure functional environment in the
+style of Jumanji~\cite{bonnet2023jumanji} used by the native PPO trainer of
+Chapter~\ref{chap:training}.  All three delegate scoring, referee decisions,
+restart placement, rewards and observations to one shared module
+(\texttt{match\_rules}), so a behaviour change in the rules cannot make training
+and evaluation diverge.
 
 \begin{figure}[ht]
     \centering
-    \subfloat[Apple M4 Pro (CPU).\label{fig:throughput_mac}]{%
-        \includegraphics[width=0.72\textwidth]{Cap5/throughput_mac.png}}\\
-    \subfloat[NVIDIA RTX 3060 (GPU).\label{fig:throughput_rtx}]{%
-        \includegraphics[width=0.72\textwidth]{Cap5/throughput_ubuntu.png}}
-    \caption{Step latency of the raw physics kernel
-    ($\mathrm{jit}(\mathrm{vmap}(\texttt{step}))$) and the \texttt{VSSVecEnv}
-    wrapper as a function of the number of parallel environments (log scale).
-    The gap between the two curves is the per-step wrapper overhead, which
-    remains roughly constant across batch sizes.}
-    \label{fig:throughput_latency}
+    \begin{tikzpicture}[
+        node distance=6mm and 10mm,
+        box/.style={draw, rounded corners, align=center, minimum height=8mm, inner sep=4pt, font=\small},
+        core/.style={box, fill=gray!15},
+        >={Stealth[length=2mm]}]
+        \node[box] (env)  {\texttt{VSSEnv}\\Gymnasium, render};
+        \node[box, below=of env] (vec) {\texttt{VSSVecEnv}\\batched Gymnasium};
+        \node[box, below=of vec] (jum) {\texttt{VSSJumanjiEnv}\\functional, native PPO};
+        \node[core, right=18mm of vec] (rules) {Shared \texttt{match\_rules}\\score, referee, restarts,\\reward, observation};
+        \node[core, right=14mm of rules] (phys) {JAX physics\\\texttt{step}: 6 sub-steps};
+        \draw[->] (env) -- (rules);
+        \draw[->] (vec) -- (rules);
+        \draw[->] (jum) -- (rules);
+        \draw[->] (rules) -- (phys);
+    \end{tikzpicture}
+    \caption{Simulator architecture.  The three front-ends differ only in their
+    interface contract; rules and physics are shared.}
+    \label{fig:sim_arch}
 \end{figure}
 
-The physics-only numbers validate the main simulator design choice: for this
-domain, the relevant rigid-body kinematics, collisions, and friction model can
-be evaluated as a large batch of array operations.  The resulting throughput is
-well above the control frequency required by any single VSSS match; the value of
-the approach comes from using that headroom to collect experience from hundreds
-or thousands of independent games at once.  Figure~\ref{fig:throughput_latency}
-shows the step latency of the raw kernel and the \texttt{VSSVecEnv} wrapper
-across the full batch sweep on both platforms.
+\paragraph{Time base.}
+The policy acts at $10$\,Hz (control step $\Delta t = 0.1$\,s).  Each control
+step runs $6$ physics sub-steps, so the physics runs at $60$\,Hz with
+$\delta t = 1/60$\,s.  When a goal occurs inside a control step the remaining
+sub-steps are skipped (the state is frozen with \texttt{lax.cond}) so the event
+is reported exactly once.  The experiments use this $10$\,Hz control rate with $6$ sub-steps.
 
-\subsubsection{Training Throughput}
+% ==================================================================
+\section{Physics Model}
+\label{sec:sim_physics}
+% ==================================================================
 
-The second benchmark measures the simulator as used by the current training
-stack.  This path includes the Gymnasium-compatible \texttt{VSSVecEnv} wrapper
-and, for the end-to-end measurement, a full Stable-Baselines3 \gls{ppo} cycle
-with rollout collection and gradient updates.  Unlike the raw physics benchmark,
-this result can be compared to the ODE-based training baseline derived in
-Chapter~2, Table~\ref{tab:legacy_throughput}, because both quantities describe
-environment steps delivered to an RL training loop.
+\subsection{Geometry and Parameters}
 
-Table~\ref{tab:throughput_wrapper} reports the throughput of the
-\texttt{VSSVecEnv} wrapper alone (the execution path that an RL library
-actually drives) across the same batch sweep.  Unlike the raw kernel, each
-step here crosses the Python and Gymnasium boundary and converts between JAX
-and NumPy arrays, so the wrapper recovers only a fraction of the physics
-ceiling: about $5\%$ at a single environment, rising to $79\%$ at $1024$
-environments as the fixed per-step cost is amortized.  At $256$ environments
-the wrapper sustains $1.6 \times 10^{5}$ steps per second.
+The field is the 150\,cm $\times$ 130\,cm playing surface of the 3v3 category with
+40\,cm wide, 10\,cm deep goals, 7\,cm corner chamfers and the goal-area
+geometry of the rulebook (Chapter~\ref{chap:vsss}).  Robots are $7.5$\,cm squares of mass
+$0.312$\,kg; the ball is a golf ball ($r = 21.35$\,mm, $m = 46$\,g).
+Table~\ref{tab:sim_params} collects the physical parameters, with the origin of
+each value.
 
 \begin{table}[ht]
     \centering
-    \caption[\texttt{VSSVecEnv} wrapper throughput (Apple~M4~Pro).]{Throughput
-    of the Gymnasium-compatible \texttt{VSSVecEnv} wrapper
-    on the Apple~M4~Pro, the path seen by RL libraries.  Every step crosses
-    the Python/Gymnasium boundary and converts between JAX and NumPy arrays.
-    Latency columns are per batched step (top~5\% trimmed); the final column is
-    the fraction of the raw physics ceiling
-    (Table~\ref{tab:throughput_physics}) attained at the same batch size.}
-    \label{tab:throughput_wrapper}
-    \begin{tabular}{rrrrrr}
+    \caption{Main physical parameters.  ``Est.'' marks values that are engineering
+    estimates rather than measurements for this platform.}
+    \label{tab:sim_params}
+    \small
+    \begin{tabular}{p{0.38\linewidth}p{0.17\linewidth}p{0.35\linewidth}}
         \toprule
-        \textbf{$n_{\mathrm{envs}}$} &
-        \textbf{Latency (mean$\pm$std)} & \textbf{Median} & \textbf{p95} &
-        \textbf{Steps/s} & \textbf{Frac.\ of ceiling} \\
-         & ($\mu$s) & ($\mu$s) & ($\mu$s) & & \\
+        \textbf{Parameter} & \textbf{Value} & \textbf{Source / note} \\
         \midrule
-        $1$    & $650.7 \pm 12.5$  & $652.7$  & $678.8$  & $1{,}532$   & $0.05$ \\
-        $8$    & $662.7 \pm 11.3$  & $661.6$  & $698.7$  & $12{,}091$  & $0.08$ \\
-        $32$   & $764.5 \pm 10.7$  & $762.6$  & $799.5$  & $41{,}960$  & $0.19$ \\
-        $64$   & $897.1 \pm 14.6$  & $896.2$  & $940.1$  & $71{,}412$  & $0.33$ \\
-        $128$  & $1169.4 \pm 47.4$ & $1167.2$ & $1305.2$ & $109{,}661$ & $0.43$ \\
-        $256$  & $1595.1 \pm 85.2$ & $1596.5$ & $1830.8$ & $160{,}353$ & $0.54$ \\
-        $512$  & $2422.5 \pm 120.9$& $2423.8$ & $2713.9$ & $211{,}239$ & $0.68$ \\
-        $1024$ & $4179.7 \pm 188.1$& $4164.6$ & $4706.5$ & $245{,}884$ & $0.79$ \\
+        Wheel radius / wheelbase        & $26$ / $53$\,mm      & robot design \\
+        Max motor speed                 & $50$\,rad/s ($1.30$\,m/s) & robot design \\
+        Wheel-speed slew limit          & $1\,g$ ($\approx 133$\,ms $0\to$max) & Est. \\
+        Rolling resistance $\mu_r$      & $0.01$   & Est.; least certain value \\
+        Floor sliding friction          & $0.25$   & golf ball on a hard surface~\cite{cross2002gripslip} \\
+        Ball--wall / ball--robot friction & $0.25$ / $0.30$ & painted wood / PLA \\
+        Restitution (floor, wall, robot) & $0.75$  & golf ball on wood, drop tests~\cite{haron2012cor} \\
+        Robot--wall / robot--robot restitution & $0.20$ & Est. \\
+        Ball inertia factor $k$         & $0.4$ & measured golf ball~\cite{cross2002gripslip} \\
+        Motor stall torque (dynamic drive) & $0.073$\,N\,m & Travesim robot model \\
+        Wheel--floor friction (dynamic drive) & $0.7$ & ITAndroids firmware \\
         \bottomrule
     \end{tabular}
 \end{table}
+% Sources: ball inertia factor and sliding friction after Cross~\cite{cross2002gripslip}; floor restitution after the drop tests of Haron and Ismail~\cite{haron2012cor}.
 
-On the RTX~3060 the same wrapper path is strongly host-bound.  Each step incurs
-a near-constant 5.4\,ms penalty for the round trip between the
-device-resident JAX state and the NumPy arrays handed to the learner, which is
-an order of magnitude larger than the CPU wrapper's overhead and dwarfs the
-sub-millisecond GPU kernel at every batch size below $4096$.  As a result the
-wrapper recovers only about $6\%$ of the GPU physics ceiling up to $1024$
-environments, and even at $65536$ environments (where it sustains its peak
-of $2.4 \times 10^{6}$ steps per second) it reaches only $59\%$ of the
-raw kernel.  Table~\ref{tab:throughput_wrapper_rtx} reports the full sweep.
+\subsection{Actuation}
+
+The policy outputs normalized wheel commands $u_L,u_R\in[-1,1]$ per robot.  They
+set target wheel speeds $w^\star = u\,v_{\max}$, with
+$v_{\max} = 1.30$\,m/s.  The applied wheel speed moves toward the target by at
+most $a_{\max}\delta t$ per sub-step,
+\begin{equation}
+    w \leftarrow w + \mathrm{clip}\!\left(w^\star - w,\; -a_{\max}\delta t,\; a_{\max}\delta t\right),
+    \qquad a_{\max} = 1\,g,
+\end{equation}
+which stands in for motor torque limits and removes impossible instantaneous
+velocity changes.  In the default \emph{kinematic} drive model the body velocity is then
+overwritten from the wheel speeds,
+\begin{equation}
+    v = \tfrac12 (w_L + w_R), \qquad
+    \omega = \frac{w_R - w_L}{L}, \qquad
+    (\dot x,\dot y) = v(\cos\theta,\sin\theta),
+\end{equation}
+with wheelbase $L = 53$\,mm.  Because velocity is overwritten at every sub-step,
+a robot driven into an obstacle is simply stopped by the contact solver and
+carries no momentum between sub-steps.
+
+An opt-in \emph{dynamic} drive model keeps the robot velocity as state.  Each
+wheel acts as a DC motor whose force is proportional to the wheel-speed error,
+saturated at the stall force $\tau_{\max}/r_w$ and at the traction limit
+$\mu g\,m/2$; sideways velocity decays only by wheel friction.  Stall, pushing
+contests between robots and momentum exchange then emerge from the physics
+instead of being imposed.  The dynamic model is validated by unit tests
+(Section~\ref{sec:sim_validation}) but is \emph{not} used in the training
+experiments of this thesis, which use the kinematic default.  % TODO: confirm.
+
+\subsection{Ball Dynamics: Skidding, Rolling, Spin and Flight}
+
+The ball carries a three-dimensional spin and a height above the floor, which
+lets the model reproduce effects that matter to the game even though the field is
+planar: a struck ball first \emph{skids}, then \emph{rolls}, and a ball that
+is hit while rolling can pop up off a wall.
+
+\paragraph{Floor contact.}
+At the contact point the slip velocity is
+$\mathbf{u} = \mathbf{v} + \boldsymbol{\omega}\times(-r\hat{\mathbf n}) - \mathbf{v}_s$,
+projected on the contact plane, where $\mathbf v_s$ is the surface velocity.
+Coulomb friction opposes slip and, per unit mass, supplies a tangential impulse
+\begin{equation}
+    p = \min\!\left(\mu\,J_n,\; \frac{\lVert\mathbf u\rVert}{1 + 1/k}\right),
+    \label{eq:friction_impulse}
+\end{equation}
+where $J_n$ is the normal impulse per unit mass and $k$ the ball's inertia factor
+($I = k\,m\,r^2$).  The second term is the impulse that exactly stops slip, so
+friction never adds energy.  A ball launched without spin therefore skids until it
+rolls at $1/(1+k) = 5/7$ of its launch speed (Figure~\ref{fig:ball_floor}), a classical
+result that is also one of the unit tests.  Once rolling, the ball decelerates at $\mu_r g$ and its spin
+follows its velocity; spin about the vertical axis decays at a constant rate.
+
+\input{Cap5/figs/fig_ball_floor}
+
+\paragraph{Flight.}
+A ball given vertical velocity follows a ballistic arc under gravity and bounces
+with restitution $e = 0.75$ on landing; bounces too small to outlast a sub-step
+are settled.  This is only used for the small pop-ups produced by wall friction
+on a rolling ball; the game remains planar.
+
+\paragraph{Face impulses.}
+When a vertical face (a wall, post or robot side) strikes the ball with approach
+speed $v_n<0$ along the face normal, the normal impulse per unit ball mass is
+\begin{equation}
+    J_n = -(1+e)\,\frac{m_f}{m_b + m_f}\,v_n ,
+\end{equation}
+where the mass ratio is $1$ for a fixed wall and uses the robot mass for a robot.
+Equation~\eqref{eq:friction_impulse} then gives the friction impulse, so a
+glancing hit converts tangential speed into spin and a rolling ball hitting a
+wall receives a small upward kick (Figure~\ref{fig:face_impulse}).  The reaction is applied to the robot.
+
+\input{Cap5/figs/fig_face_impulse}
+
+\subsection{Contact Resolution}
+\label{sec:sim_contact}
+
+Contact handling is where most of the engineering effort went, because errors there
+are not cosmetic: a ball that tunnels through a robot or a goal post, or is squeezed
+outside the field, corrupts both the reward signal and the referee decisions.  An
+earlier version of the simulator resolved each sub-step by integrating all bodies and
+then fixing overlaps by summing positional corrections.  Under high ball speeds or
+crowded robots, a later correction could push a body back through a wall that an
+earlier correction had just respected, and a fast ball could cross a robot or the
+goal front completely between two samples.  The current design separates
+\emph{detecting} the first contact in time from \emph{making the final geometry
+consistent}.
+
+\begin{figure}[ht]
+    \centering
+    \begin{tikzpicture}[
+        node distance=5mm,
+        box/.style={draw, rounded corners, align=center, minimum width=0.82\linewidth, minimum height=7mm, font=\small},
+        >={Stealth[length=2mm]}]
+        \node[box] (a) {1. Slew wheel speeds; drive robots; advance ball floor/flight model};
+        \node[box, below=of a] (b) {2. Constrain robot motion against walls and chamfers};
+        \node[box, below=of b, fill=gray!15] (c) {3. Swept ball: earliest of wall / post / robot / goal-line event (up to 4 events)};
+        \node[box, below=of c] (d) {4. Discrete ball--robot and robot--robot impulses (velocities only)};
+        \node[box, below=of d, fill=gray!15] (e) {5. Position-only projection: 6 coupled iterations, velocities preserved};
+        \node[box, below=of e] (f) {6. If a goal occurred in step 3, restore the pre-projection state};
+        \foreach \s/\t in {a/b,b/c,c/d,d/e,e/f} \draw[->] (\s) -- (\t);
+    \end{tikzpicture}
+    \caption{One physics sub-step.  Shaded stages are the continuous-collision
+    and projection stages added to prevent tunnelling and wall violations.}
+    \label{fig:sim_substep}
+\end{figure}
+
+\paragraph{Overlap measures.}
+Both the discrete impulses and the projection need a normal and a penetration depth for
+each pair in contact (Figure~\ref{fig:contact_geometry}).  For the ball and a robot, the ball
+centre is expressed in the robot frame and clamped to the square, which gives the robot's
+closest point to the ball.  Robot pairs use the separating-axis test over the four face
+normals of the two squares and keep the axis of least overlap.  A robot is kept inside the
+field by clamping its centre to at least its support distance $h(\lvert\cos\theta\rvert+\lvert\sin\theta\rvert)$
+from each wall (and the analogous support along each chamfer diagonal), zeroing the outward
+velocity; it may enter a goal pocket only if its whole footprint fits between the posts.
+
+\input{Cap5/figs/fig_contact_geometry}
+
+\paragraph{Swept ball motion.}
+The field boundary is a fixed set of oriented segments (walls, chamfers, goal posts
+and pocket rails).  For a ball centre moving as $\mathbf p(t) = \mathbf p_0 + t\,\mathbf d$,
+$t\in[0,1]$ within a sub-step, a finite segment expanded by the ball radius is a
+capsule (Figure~\ref{fig:sweep}a), so candidate hit times come from two cases: the face case, a linear equation
+\begin{equation}
+    t = \frac{\pm r - \mathbf n\cdot(\mathbf p_0 - \mathbf a)}{\mathbf n\cdot\mathbf d},
+\end{equation}
+accepted only if the contact point lies within the segment, and the endpoint case, a
+quadratic $\lVert \mathbf p_0 + t\mathbf d - \mathbf v\rVert^2 = r^2$ for each end vertex
+$\mathbf v$.  Receding or parallel candidates are rejected so a ball at rest on a wall does
+not generate zero-time events.  Robots are cast the same way, in the robot frame: the
+ball's relative path is tested against the robot's square, with the robot's rotation
+approximated by interpolating its orientation over two chords per sub-step so that a
+spinning robot can strike a resting ball (Figure~\ref{fig:sweep}b).  Goal events are a third candidate class: the
+ball scores only when its \emph{whole} body has crossed the goal line inside the mouth, per
+the rulebook, and a wall or post hit earlier in the sub-step takes precedence (Figure~\ref{fig:events}a).
+
+The simulator takes the earliest valid candidate, applies the face impulse of the
+previous section at that instant, and continues with the remaining time (Figure~\ref{fig:events}b).  A bounded loop
+of at most four events per sub-step keeps shapes static for XLA; if the budget is exhausted
+the residual travel is discarded.  The bounded dynamic loop prevents reverse-mode
+differentiation through the step, which is acceptable because the learner does not
+differentiate through the simulator.
+
+\input{Cap5/figs/fig_sweep}
+\input{Cap5/figs/fig_events}
+
+\paragraph{Discrete impulses.}
+Stage~4 handles contacts that the ball sweep does not, such as two robots meeting or a robot
+pressing a ball it already touches.  With the overlap measures above, the ball receives the face
+impulse of the previous section (mass share $m_r/(m_b+m_r)$, surface velocity including the robot's
+spin) and robot pairs exchange an inelastic impulse with $e=0.2$ along the separating axis, as
+equal masses.  Only the velocity changes of this stage are kept; its positional corrections are
+discarded and left to the projection.
+
+\paragraph{Coupled projection.}
+After the discrete impulses, a fixed number of position-only iterations (six) repairs the
+remaining overlaps without adding any further impulses (Figure~\ref{fig:projection}).  Ball corrections are averaged over
+simultaneous contacts and clipped at the first static wall, so projection stops at the first wall contact instead of pushing
+the ball through it.  Robot--robot overlaps are relaxed Gauss--Seidel style: the complete
+graph on six robots decomposes into five perfect matchings of three disjoint pairs, so each
+round corrects three independent pairs in parallel (a fixed, vectorizable schedule).  After
+every round the robots are re-clamped to the field, and a robot that the clamp had to move is
+treated as immovable in the next round so that its partner absorbs the whole separation, in the
+spirit of position-based dynamics~\cite{muller2007pbd}.  Because the iteration budget is fixed,
+residual penetration remains possible in dense jams; Section~\ref{sec:sim_validation} quantifies it.
+
+\input{Cap5/figs/fig_projection}
+
+\subsection{Design Choices and Known Simplifications}
+
+The model is a 2D rigid-body model with the following limitations, which
+bound what conclusions the later chapters can draw:
+\begin{itemize}
+  \item robots are squares with equal positional weighting in the projection step, a numerical
+        preconditioner rather than a physical mass model;
+  \item rotating-robot paths are swept with two chords, and trajectory changes caused by
+        impacts within a sub-step are not swept;
+  \item the event budget of four per sub-step and the six projection iterations are fixed;
+  \item Gaussian position and heading noise is the only sensing imperfection modelled; there is no communication latency, camera delay or battery effect, so
+        policies are not yet validated against real robots;
+  \item several coefficients are estimates (Table~\ref{tab:sim_params}), and no physical
+        calibration against real ball trajectories has been performed.
+\end{itemize}
+% TODO: if any of these gets fixed or measured before submission, update here.
+
+% ==================================================================
+\section{Match Rules and Referee}
+\label{sec:sim_rules}
+% ==================================================================
+
+Match semantics live in a single module shared by all front-ends.  After each control step the
+module receives the pre-step and post-physics states, the goal event, and the step counter, and
+returns the carried state, observation, reward, referee state and any restart.  The referee
+implements the RoboCore VSSS rulebook (version~3.0, 2025)~\cite{robocore_vsss_rules} for the
+calls that can be inferred from the 2D state: goals; attacker and defender goal-area violations;
+goalkeeper possession timeout; goal-area and field impasses; personal fouls and goalkeeper
+blocking; and a ball stopped inside a goal area.  Restarts are kickoff, penalty kick, goal kick,
+free ball and free kick, and the match enters a stopped phase during which actions are zeroed
+until the restart formation is placed.  Three referee modes are available:
+\texttt{OFF} (goals only), \texttt{SIMPLIFIED} (stuck-ball free balls and the two-robot goal-area
+fouls) and \texttt{FULL}.  The experiments of this work use the \texttt{SIMPLIFIED} mode.
+
+Two rules matter especially for learning.  First, a goal requires the entire ball to cross
+the line within the mouth, and the physics stops the remaining sub-steps so the event is scored once.
+Second, \texttt{terminate\_on\_goal} makes an episode end at a goal, which is the default for the Brand\~ao-style policies of
+Chapter~\ref{chap:training}~\cite{brandao2022}; otherwise a goal triggers a kickoff and play continues until
+the time limit.
+
+% ==================================================================
+\section{Validation}
+\label{sec:sim_validation}
+% ==================================================================
+
+Validation has two layers: automated tests that each pin down one physical or rule property, and
+quantitative stress benchmarks.  No comparison to physical robot data has been made, so ``validation''
+here means \emph{internal consistency and regression protection}, not fidelity to the real game.
+
+\paragraph{Property tests.}
+The test suite is grouped by what it protects:
+\begin{itemize}
+  \item \emph{Ball dynamics:} a resting ball stays at rest; a kicked ball skids and then rolls at $5/7$ of
+        its speed; a rolling ball decelerates only by rolling resistance; backspin conserves angular
+        momentum about the contact; a rolling ball pops up off a wall and settles while a skidding one does
+        not; glancing hits convert sideways speed into spin; and ball contacts never add energy.
+  \item \emph{Collision regressions:} each reproduces a failure of the earlier simulator.  A fast ball
+        beside the goal bounces without a false goal; a ball fully crossing the open goal is scored; a robot
+        pressing the ball against a side wall, a robot pushed by another robot, and a train of robots pushed
+        into a wall all stay inside the field; two robots cannot drive into the ball from opposite sides;
+        a fast ball cannot pass through a stationary robot; a spinning robot corner kicks a resting ball without
+        penetration; and the robot-pair projection converges for a crowd in open field.
+  \item \emph{Dynamic drive:} acceleration is limited by traction and saturates at top speed; a robot driving
+        into a wall stalls and stays inside; momentum transfers between robots; equal head-on pushers deadlock
+        while a stronger command wins; and contact creates no energy.
+  \item \emph{Batching and parity:} a batched step equals the individual steps for the collision scenarios,
+        the batched Jumanji step distinguishes a post/wall hit from a valid goal, and CPU and GPU steps agree.
+  \item \emph{Rules:} referee, restart and kickoff behaviour is tested for the scalar, batched and Jumanji
+        environments, including symmetry of the two teams' perspective.
+\end{itemize}
+
+\paragraph{Stress benchmark.}
+A randomized stress run (fast balls, clustered robots, random wheel commands) measures how often the
+simulator leaves a violated invariant.  % TODO(results): regenerate with scripts/bench_collision_physics.py on the
+% final code and report: fraction of runs with ball outside field, robot-robot overlap > 1 mm, ball-robot
+% penetration, tunnelling count, before/after (commit 2e85195 vs. HEAD) as a table.  The development log reports
+% robot--robot overlaps above 1 mm falling from 15% to 3% of stress runs; the remainder are dense jams and the
+% four-event budget.  Reproduce before citing.
+
+\paragraph{Substep sensitivity.}
+% TODO(results): run the same scenarios with 6, 12 and 24 sub-steps to show which failures sub-stepping alone
+% does and does not fix (development notes: more sub-steps fixed the single fast-ball cases but not multi-robot pinches).
+
+% ==================================================================
+\section{Throughput}
+\label{sec:sim_throughput}
+% ==================================================================
+
+% TODO(results): the numbers below must be re-measured -- the TG-1 measurements predate the swept-collision and
+% contact-projection stages, which cost roughly 1.6--1.8x per step on CPU (development log, physics only).
+Throughput is reported as environment steps per second after JIT warm-up, with asynchronous dispatch
+excluded by blocking on results.  Two quantities matter: the raw $\mathrm{jit}(\mathrm{vmap}(\texttt{step}))$
+kernel (the physics ceiling), and a complete PPO generation including policy inference, GAE and the optimizer
+(Section~\ref{sec:ppo}).  The kernel is measured on both the CPU and the GPU of the same machine, so that the effect of the accelerator can be read separately
+from the cost of the physics model itself.
 
 \begin{table}[ht]
     \centering
-    \caption[\texttt{VSSVecEnv} wrapper throughput (NVIDIA~RTX~3060).]{Throughput
-    of the \texttt{VSSVecEnv} wrapper on the
-    NVIDIA~RTX~3060.  Columns mirror Table~\ref{tab:throughput_wrapper}; the
-    final column is the fraction of the GPU physics ceiling
-    (Table~\ref{tab:throughput_physics_rtx}) attained at the same batch size.
-    }
-    \label{tab:throughput_wrapper_rtx}
-    \begin{tabular}{rrrrrr}
-        \toprule
-        \textbf{$n_{\mathrm{envs}}$} &
-        \textbf{Latency (mean$\pm$std)} & \textbf{Median} & \textbf{p95} &
-        \textbf{Steps/s} & \textbf{Frac.\ of ceiling} \\
-         & ($\mu$s) & ($\mu$s) & ($\mu$s) & & \\
-        \midrule
-        $1$     & $5690.4 \pm 217.4$  & $5659.3$  & $6241.6$  & $177$         & $0.06$ \\
-        $8$     & $5810.6 \pm 248.3$  & $5805.1$  & $6397.1$  & $1{,}378$     & $0.06$ \\
-        $32$    & $5788.0 \pm 264.7$  & $5793.9$  & $6395.3$  & $5{,}523$     & $0.06$ \\
-        $64$    & $5807.0 \pm 237.6$  & $5821.1$  & $6476.9$  & $10{,}994$    & $0.06$ \\
-        $128$   & $5851.6 \pm 273.9$  & $5853.4$  & $6499.8$  & $21{,}868$    & $0.06$ \\
-        $256$   & $5913.1 \pm 293.9$  & $5896.5$  & $6678.4$  & $43{,}416$    & $0.06$ \\
-        $512$   & $5846.4 \pm 287.7$  & $5813.8$  & $6679.5$  & $88{,}066$    & $0.06$ \\
-        $1024$  & $5937.7 \pm 282.4$  & $5932.8$  & $6609.8$  & $172{,}599$   & $0.06$ \\
-        $4096$  & $6361.3 \pm 229.2$  & $6315.6$  & $7095.1$  & $648{,}548$   & $0.12$ \\
-        $16384$ & $9675.4 \pm 220.1$  & $9644.8$  & $10270.7$ & $1{,}698{,}739$ & $0.34$ \\
-        $65536$ & $27663.3 \pm 714.5$ & $27824.7$ & $28794.4$ & $2{,}355{,}314$ & $0.59$ \\
-        \bottomrule
-    \end{tabular}
-\end{table}
-
-The source of the gap is isolated in Table~\ref{tab:wrapper_overhead}, which
-subtracts the median raw-kernel step latency from the median wrapper step
-latency at each batch size.  The per-step overhead is roughly constant at
-$0.6$--$0.9$\,ms regardless of batch size: it therefore dominates the small
-batches, where it inflates a $30\,\mu$s kernel step by more than twenty-fold,
-and is amortized as the batch grows and the device-side physics cost catches
-up with it.  The mild upward drift of the overhead at the largest batches
-tracks the size of the observation array marshalled back to the learner, which
-grows linearly with the number of environments.
-
-\begin{table}[ht]
-    \centering
-    \caption[Per-step \texttt{VSSVecEnv} wrapper overhead (Apple~M4~Pro).]{Per-step
-    \texttt{VSSVecEnv} wrapper overhead on the Apple~M4~Pro:
-    the difference between the median wrapper step latency
-    (Table~\ref{tab:throughput_wrapper}) and the median raw-kernel step latency
-    (Table~\ref{tab:throughput_physics}) at each batch size, alongside the size
-    of the observation array returned to the learner.}
-    \label{tab:wrapper_overhead}
+    \caption{Throughput of the final simulator. \textbf{TODO(results):} fill from the GPU machine.}
+    \label{tab:sim_throughput}
+    \small
     \begin{tabular}{rrrr}
         \toprule
-        \textbf{$n_{\mathrm{envs}}$} & \textbf{Kernel median} &
-        \textbf{Wrapper median} & \textbf{Overhead} \\
-         & ($\mu$s) & ($\mu$s) & ($\mu$s) \\
+        \textbf{Parallel envs} & \textbf{Raw physics, CPU (steps/s)} & \textbf{Raw physics, GPU (steps/s)} & \textbf{Full PPO generation, GPU (steps/s)} \\
         \midrule
-        $1$    & $30.1$   & $652.7$  & $622.6$ \\
-        $8$    & $54.5$   & $661.6$  & $607.2$ \\
-        $32$   & $145.9$  & $762.6$  & $616.8$ \\
-        $64$   & $291.2$  & $896.2$  & $605.0$ \\
-        $128$  & $501.4$  & $1167.2$ & $665.9$ \\
-        $256$  & $857.4$  & $1596.5$ & $739.0$ \\
-        $512$  & $1650.0$ & $2423.8$ & $773.8$ \\
-        $1024$ & $3273.3$ & $4164.6$ & $891.2$ \\
+        $256$   & -- & -- & -- \\
+        $1024$  & -- & -- & -- \\
+        $4096$  & -- & -- & -- \\
+        $16384$ & -- & -- & -- \\
         \bottomrule
     \end{tabular}
 \end{table}
 
-\begin{table}[ht]
-    \centering
-    \caption[Training-throughput comparison with the ODE-based baselines.]{Training-throughput
-    comparison between the prior ODE-based
-    ITAndroids baselines and the current simulator stack.  Baseline values are
-    derived in Table~\ref{tab:legacy_throughput}; new measurements are taken
-    after JIT warm-up. All rows consider the fastest measured
-    configuration (PPO minibatch $4096$); see Table~\ref{tab:ppo_pergen} for the
-    full sweep. The per env. steps/s column is calculated by dividing the total steps per second by the number of environments.}
-    \label{tab:throughput_training}
-    \begin{tabular}{llrrr}
-        \toprule
-        \textbf{System} &
-        \textbf{$n_{\mathrm{envs}}$} & \textbf{$steps\cdot s^{-1}$} & \textbf{$steps\cdot s^{-1}\cdot {\mathrm{env}}^{-1}$} \\
-        \midrule
-        baseline 1~\cite{tg_thay} &
-        1 & $63$ & $63$ \\
-        baseline 2~\cite{master_thiago} &
-        4 & $378$ & $94$ \\
-        \midrule
-        Apple M4 Pro & 8 & $8,837$ & $\mathbf{1,105}$ \\
-        Apple M4 Pro & 256 & $\mathbf{49,285}$ & $193$ \\
-        NVIDIA RTX~3060 & 8 & $1,126$ & $141$ \\
-        NVIDIA RTX~3060 & 65536 & $\mathbf{57,927}$ & $0.88$ \\
-        \bottomrule
-    \end{tabular}
-\end{table}
+The comparison with earlier ITAndroids ODE-based training (63--378 steps/s per training agent, Table~\ref{tab:legacy_throughput}) is not like for like, since the physics differs.  The simulator here is a simpler 2D model than a general rigid-body engine such as ODE,
+and that simplicity alone makes a single step cheaper; the GPU then multiplies this by stepping thousands of environments at once.  The CPU column of Table~\ref{tab:sim_throughput} isolates the first factor, and the
+growth with the number of parallel environments on the GPU shows the second.
 
-Table~\ref{tab:throughput_training} collects the headline numbers for direct
-comparison against the ODE baselines.  This comparison is not strictly controlled: the ODE-based simulators implement
-more elaborate collision physics (rigid-body dynamics via an ODE solver), while
-the new simulator uses a simplified 2D model designed for array-level throughput
-rather than physical fidelity (Section~\ref{sec:physics_model}, Chapter~4).
-Part of the throughput advantage therefore reflects reduced per-step computation,
-in addition to batching and GPU acceleration.  With this caveat, the comparison
-separates two further effects.
-First, even the current wrapped environment delivers orders of magnitude more
-environment steps per second than the prior single-instance ODE training setup: about
-$1.6 \times 10^{5}$ steps per second on the M4 Pro wrapper path and up to
-$2.4 \times 10^{6}$ on the RTX~3060 wrapper path at the largest batch, compared
-with 63--94 steps per second per simulator instance in
-the legacy systems.  Second, when the full \gls{ppo} cycle is included,
-end-to-end throughput depends strongly on the number of parallel environments
-and the PPO minibatch size (the number of transitions processed per gradient
-step during the update phase. Referred to as the \texttt{batch\_size} in the SB3 documentation \cite{raffin2021sb3}): as detailed in Tables~\ref{tab:ppo_pergen}
-and~\ref{tab:ppo_pergen_rtx}, on the M4 Pro it ranges from
-$1.1 \times 10^{3}$ steps per second for a single environment up to
-$4.9 \times 10^{4}$ steps per second at $256$ environments with the
-largest minibatch.  The RTX~3060 is slower at every batch size the M4 Pro was
-tested at, because the SB3 learner forces a host round trip on every step that
-masks the GPU's physics advantage; only by pushing to $65536$ environments
-does it reach a peak of $5.8 \times 10^{4}$ steps per second, modestly
-above the M4 Pro.  Even the fastest of these configurations is still well above the ODE-based
-ITAndroids baseline (Section~\ref{sec:throughput_bottleneck}, Chapter~2) by two to three orders of
-magnitude, yet remains almost two orders of magnitude below the raw simulator ceiling.
+\section{Fully Compiled PPO}
+\label{sec:ppo}
+% ==================================================================
 
-Table~\ref{tab:ppo_pergen} breaks the end-to-end cost down per generation,
-separating the rollout phase (environment stepping and policy inference) from
-the PPO update phase (PyTorch gradient steps on CPU).  Two patterns are
-visible.  The rollout time per generation is largely independent of the number
-of environments (the batched simulator absorbs the extra environments almost
-for free), whereas the update time grows with both the minibatch size
-and the volume of collected data, and dominates the budget at the larger
-configurations.  Increasing the minibatch size markedly improves overall
-throughput (e.g.\ at $256$ environments, from $6.5 \times 10^{3}$ steps
-per second at minibatch $64$ to $4.9 \times 10^{4}$ at minibatch $4096$),
-because larger minibatches amortize the fixed per-update overhead of the
-CPU-resident optimizer.  The single-environment rows isolate that overhead: the
-rollout collapses to one long serial trajectory (3.3\,s) that caps
-throughput near $10^{3}$ steps per second regardless of minibatch size.
-
-\begin{table}[ht]
-    \centering
-    \caption[End-to-end SB3 \gls{ppo} per-generation timing (Apple~M4~Pro).]{End-to-end
-    Stable-Baselines3 \gls{ppo} per-generation timing on the
-    Apple~M4~Pro (\texttt{VSSVecEnv} batched JAX backend, PyTorch policy on CPU),
-    as a function of the number of parallel environments and the PPO minibatch
-    size.  Each configuration runs $12$ generations after JIT warm-up, and the
-    rollout length per environment ($n_{\mathrm{steps}}$) is auto-aligned so that
-    one generation collects a comparable volume of transitions.  The rollout and
-    update columns are per-generation medians (with mean$\pm$std across
-    generations); overall throughput is
-    $n_{\mathrm{envs}}\,n_{\mathrm{steps}}/(t_{\mathrm{rollout}}+t_{\mathrm{update}})$.}
-    \label{tab:ppo_pergen}
-    \small
-    \begin{tabular}{rrrrr}
-        \toprule
-        \textbf{$n_{\mathrm{envs}}$} & \textbf{$n_{\mathrm{steps}}$} &
-        \textbf{Rollout (ms)} & \textbf{Update (ms)} & \textbf{Steps/s} \\
-        \midrule
-        \multicolumn{5}{l}{\textit{PPO minibatch $=64$}} \\
-        $1$   & $4096$ & $3277.2 \pm 18.5$ & $579.5 \pm 4.5$    & $1{,}062$ \\
-        $8$   & $512$  & $422.4 \pm 5.5$   & $583.9 \pm 6.0$    & $4{,}071$ \\
-        $32$  & $512$  & $531.4 \pm 30.4$  & $2369.6 \pm 93.4$  & $5{,}647$ \\
-        $64$  & $256$  & $378.2 \pm 11.9$  & $2395.3 \pm 76.5$  & $5{,}914$ \\
-        $128$ & $256$  & $500.2 \pm 77.9$  & $4699.5 \pm 50.8$  & $6{,}305$ \\
-        $256$ & $128$  & $362.0 \pm 57.6$  & $4666.9 \pm 23.5$  & $6{,}515$ \\
-        \midrule
-        \multicolumn{5}{l}{\textit{PPO minibatch $=256$}} \\
-        $1$   & $4096$ & $3317.5 \pm 13.7$ & $172.1 \pm 3.5$   & $1{,}174$ \\
-        $8$   & $512$  & $427.2 \pm 5.1$   & $169.4 \pm 3.6$   & $6{,}863$ \\
-        $32$  & $512$  & $519.0 \pm 6.4$   & $683.9 \pm 15.3$  & $13{,}625$ \\
-        $64$  & $256$  & $370.0 \pm 6.3$   & $680.2 \pm 12.5$  & $15{,}585$ \\
-        $128$ & $256$  & $479.7 \pm 5.3$   & $1350.8 \pm 13.7$ & $17{,}891$ \\
-        $256$ & $128$  & $351.9 \pm 35.8$  & $1323.8 \pm 14.9$ & $19{,}569$ \\
-        \midrule
-        \multicolumn{5}{l}{\textit{PPO minibatch $=1024$}} \\
-        $1$   & $4096$ & $3374.9 \pm 41.9$ & $79.7 \pm 2.1$    & $1{,}186$ \\
-        $8$   & $512$  & $428.3 \pm 4.9$   & $77.9 \pm 0.7$    & $8{,}089$ \\
-        $32$  & $512$  & $522.3 \pm 5.9$   & $310.4 \pm 11.1$  & $19{,}643$ \\
-        $64$  & $256$  & $370.5 \pm 5.5$   & $302.5 \pm 4.7$   & $24{,}329$ \\
-        $128$ & $256$  & $477.6 \pm 5.8$   & $619.4 \pm 14.0$  & $29{,}881$ \\
-        $256$ & $128$  & $343.2 \pm 4.9$   & $626.5 \pm 12.8$  & $33{,}787$ \\
-        \midrule
-        \multicolumn{5}{l}{\textit{PPO minibatch $=4096$}} \\
-        $1$   & $4096$ & $3322.2 \pm 13.5$ & $38.7 \pm 0.9$    & $1{,}219$ \\
-        $8$   & $512$  & $424.5 \pm 3.5$   & $38.9 \pm 1.1$    & $8{,}837$ \\
-        $32$  & $512$  & $523.3 \pm 7.2$   & $158.1 \pm 3.4$   & $24{,}054$ \\
-        $64$  & $256$  & $374.8 \pm 5.4$   & $160.5 \pm 4.7$   & $30{,}641$ \\
-        $128$ & $256$  & $483.2 \pm 5.5$   & $332.4 \pm 64.1$  & $40{,}208$ \\
-        $256$ & $128$  & $343.8 \pm 5.5$   & $319.9 \pm 11.1$  & $49{,}285$ \\
-        \bottomrule
-    \end{tabular}
-\end{table}
-
-The same experiment on the RTX~3060 (Table~\ref{tab:ppo_pergen_rtx}) makes the
-learner-side bottleneck unmistakable.  At the small environment counts that the
-M4 Pro was tested at, the GPU is actually slower: a single-environment
-generation takes 26\,s (roughly eight times the M4 Pro figure)
-because each tiny physics step pays a fixed GPU launch and host-transfer cost
-that the few in-flight environments cannot amortize.  Only once tens of
-thousands of environments share that fixed cost does the GPU pull ahead, with
-end-to-end throughput climbing to a peak of $5.8 \times 10^{4}$ steps per
-second at $65536$ environments with the largest minibatch, modestly above
-the M4 Pro's measured peak but achieved at a $256\times$ larger batch. 
-Even this best case sits almost two orders of magnitude below the raw GPU
-physics ceiling of $5.4 \times 10^{6}$ steps per
-second: the CPU-resident SB3 update phase, whose median grows into the hundreds
-of milliseconds and then seconds per generation (last rows of each block),
-now dominates the budget entirely.  This is the clearest motivation for the
-JAX-native learner planned for TG-2.
-
-\begin{table}[ht]
-    \centering
-    \caption[End-to-end SB3 \gls{ppo} per-generation timing on the
-    NVIDIA~RTX~3060.]{End-to-end Stable-Baselines3 \gls{ppo} per-generation
-    timing on the NVIDIA~RTX~3060, in the same format as
-    Table~\ref{tab:ppo_pergen}.  The host-bound SB3 path overtakes the CPU
-    machine only at the largest batch sizes, and even its peak
-    ($5.8 \times 10^{4}$ steps per second) stays almost two orders of
-    magnitude below the raw GPU physics ceiling, exposing the learner-side
-    bottleneck.  The smallest minibatch ($64$) was not run beyond $256$
-    environments.}
-    \label{tab:ppo_pergen_rtx}
-    \small
-    \begin{tabular}{rrrrr}
-        \toprule
-        \textbf{$n_{\mathrm{envs}}$} & \textbf{$n_{\mathrm{steps}}$} &
-        \textbf{Rollout (ms)} & \textbf{Update (ms)} & \textbf{Steps/s} \\
-        \midrule
-        \multicolumn{5}{l}{\textit{PPO minibatch $=64$}} \\
-        $1$   & $4096$ & $26448.6 \pm 209.4$ & $1230.5 \pm 27.3$   & $148$     \\
-        $8$   & $512$  & $3632.3 \pm 37.2$   & $1268.5 \pm 59.8$   & $835$     \\
-        $32$  & $512$  & $3683.5 \pm 39.8$   & $4984.2 \pm 117.9$  & $1{,}885$ \\
-        $64$  & $256$  & $1950.4 \pm 122.0$  & $5403.8 \pm 436.8$  & $2{,}240$ \\
-        $128$ & $256$  & $1899.4 \pm 35.5$   & $10134.8 \pm 307.6$ & $2{,}725$ \\
-        $256$ & $128$  & $1065.6 \pm 320.2$  & $10064.1 \pm 289.8$ & $2{,}952$ \\
-        \midrule
-        \multicolumn{5}{l}{\textit{PPO minibatch $=256$}} \\
-        $1$   & $4096$ & $27004.2 \pm 138.7$ & $340.8 \pm 6.8$    & $150$     \\
-        $8$   & $512$  & $3642.8 \pm 25.6$   & $345.6 \pm 14.0$   & $1{,}027$ \\
-        $32$  & $512$  & $3721.5 \pm 49.9$   & $1384.5 \pm 38.4$  & $3{,}205$ \\
-        $64$  & $256$  & $1870.3 \pm 32.8$   & $1390.3 \pm 58.8$  & $5{,}029$ \\
-        $128$ & $256$  & $1885.5 \pm 30.3$   & $2738.8 \pm 68.7$    & $7{,}068$  \\
-        $256$ & $128$  & $963.5 \pm 12.6$    & $2728.0 \pm 75.1$    & $8{,}852$  \\
-        $1024$  & $64$ & $577.9 \pm 124.1$   & $5351.2 \pm 137.2$   & $11{,}070$ \\
-        $4096$  & $32$ & $696.7 \pm 465.8$   & $10994.7 \pm 533.8$  & $11{,}182$ \\
-        $16384$ & $32$ & $1332.3 \pm 1131.8$ & $43351.7 \pm 776.8$  & $11{,}763$ \\
-        $65536$ & $32$ & $4230.9 \pm 3111.7$ & $168621.4 \pm 2919.6$& $12{,}156$ \\
-        \midrule
-        \multicolumn{5}{l}{\textit{PPO minibatch $=1024$}} \\
-        $1$   & $4096$ & $26302.4 \pm 153.6$ & $111.4 \pm 3.3$   & $155$      \\
-        $8$   & $512$  & $3557.7 \pm 32.8$   & $111.5 \pm 2.6$   & $1{,}116$  \\
-        $32$  & $512$  & $3608.4 \pm 36.6$   & $448.9 \pm 10.9$  & $4{,}036$  \\
-        $64$  & $256$  & $1828.6 \pm 15.7$   & $464.7 \pm 19.7$  & $7{,}145$  \\
-        $128$ & $256$  & $1938.8 \pm 226.2$  & $913.3 \pm 35.9$    & $11{,}500$ \\
-        $256$ & $128$  & $958.6 \pm 26.6$    & $927.5 \pm 21.8$    & $17{,}384$ \\
-        $1024$  & $64$ & $543.5 \pm 50.4$    & $1771.8 \pm 45.2$   & $28{,}351$ \\
-        $4096$  & $32$ & $551.7 \pm 372.7$   & $3739.4 \pm 94.5$   & $30{,}461$ \\
-        $16384$ & $32$ & $1207.4 \pm 726.5$  & $14700.8 \pm 157.1$ & $32{,}935$ \\
-        $65536$ & $32$ & $3667.3 \pm 2223.0$ & $59129.1 \pm 1322.9$& $33{,}389$ \\
-        \midrule
-        \multicolumn{5}{l}{\textit{PPO minibatch $=4096$}} \\
-        $1$   & $4096$ & $26412.9 \pm 156.2$ & $59.8 \pm 2.9$    & $155$      \\
-        $8$   & $512$  & $3580.5 \pm 26.5$   & $58.2 \pm 1.5$    & $1{,}126$  \\
-        $32$  & $512$  & $3647.8 \pm 45.7$   & $241.2 \pm 4.6$   & $4{,}212$  \\
-        $64$  & $256$  & $1841.5 \pm 27.8$   & $240.8 \pm 4.1$   & $7{,}870$  \\
-        $128$ & $256$  & $1880.3 \pm 25.7$   & $488.3 \pm 10.3$   & $13{,}828$ \\
-        $256$ & $128$  & $1030.3 \pm 182.3$  & $490.6 \pm 9.1$    & $21{,}549$ \\
-        $1024$  & $64$ & $551.7 \pm 45.6$    & $968.6 \pm 10.5$   & $43{,}079$ \\
-        $4096$  & $32$ & $597.5 \pm 382.1$   & $1971.4 \pm 15.6$  & $51{,}037$ \\
-        $16384$ & $32$ & $1242.6 \pm 692.9$  & $7931.3 \pm 92.7$  & $57{,}090$ \\
-        $65536$ & $32$ & $3609.4 \pm 2392.6$ & $32620.8 \pm 445.6$& $57{,}927$ \\
-        \bottomrule
-    \end{tabular}
-\end{table}
-
-The remaining gap identifies the next bottleneck.  As
-Table~\ref{tab:wrapper_overhead} shows, the \texttt{VSSVecEnv} wrapper crosses
-a Python and Gymnasium boundary at every step, converting between JAX arrays
-and NumPy arrays, at a near-constant cost of $0.6$--$0.9$\,ms per step.  The
-full SB3 path adds CPU-bound PyTorch gradient updates, so the learner cannot
-stay on the same accelerator as the simulator.  The TG-1 simulator removes the original physics and socket-communication
-bottleneck; the learner-side boundary now dominates.  A JAX-native training path~\cite{hessel2021podracer,toledo2024stoix} is
-planned for TG-2 to close this gap by keeping policy inference, rollout
-collection, and optimization on device.
-
-These results confirm that expressing VSSS physics as batched array operations
-yields throughput well above what a conventional single-instance simulator can
-achieve, and identify the learner-side boundary as the next bottleneck to
-address.
-
-% ------------------------------------------------------------------
-\subsection{Simulator Interface and Architecture}
-% ------------------------------------------------------------------
-
-The second preliminary result is the simulator as a software artifact: a
-validated, reusable environment that the learner can call while preserving the
-vectorization required for high throughput.
-
-The simulator's training path is the JAX backend: its state is an immutable
-\texttt{NamedTuple} PyTree using \texttt{float32} arithmetic, directly
-compatible with \texttt{jax.vmap} for batched execution.  A CPU reference
-implementation exists for unit testing and debugging but is not part of the
-training path.  Run-specific training settings are tabulated in
-Table~\ref{tab:smoke_config} (Section~\ref{sec:early_training}).
-
-On top of the physics core, the environment exposes the reset–step interface
-described in Section~\ref{sec:simulator} (Chapter~4), registered through the
-Gymnasium vectorized-environment API and bridged to Stable-Baselines3 via a
-thin adapter.
-
-The per-step data flow is:
-%
+The learner is Proximal Policy Optimization~\cite{schulman2017ppo} with generalized advantage
+estimation~\cite{schulman2015gae}, implemented directly in JAX/Flax/Optax rather than through an external
+library.  The motivation is the throughput bottleneck of the preliminary design (TG-1), where every step crossed the
+host--device boundary into a CPU learner.  Here the entire generation is one compiled function:
 \begin{enumerate}
-    \item initialize (or reset) a batch of game states;
-    \item run policy inference for the controlled team in each environment;
-    \item step the batched physics on device;
-    \item compute observations, rewards, and termination flags;
-    \item accumulate transitions for the \gls{ppo} update.
+  \item \textbf{Rollout.} An outer \texttt{lax.scan} of $T$ steps runs, for $N$ environments batched with \texttt{vmap}: policy inference, sampling, the opponent's action, the
+        environment step and an automatic reset (\texttt{lax.cond}) of every environment whose episode ended.  Because
+        consecutive eight-frame histories share seven frames, only the newest frame is stored and the histories are rebuilt
+        for each optimization minibatch, which reduces rollout memory roughly eightfold.
+  \item \textbf{Advantages.} GAE($\gamma,\lambda$) is computed by a reverse scan, with the value of the last state as
+        bootstrap for truncated episodes and zero for terminated ones.  Advantages are normalized over the batch.
+  \item \textbf{Update.} $E$ epochs over $M$ shuffled minibatches minimize the clipped surrogate
+        $-\min\!\big(r_t A,\ \mathrm{clip}(r_t,1\!-\!\epsilon,1\!+\!\epsilon)A\big)$ together with a clipped value loss and an entropy bonus,
+        followed by gradient-norm clipping and Adam.
 \end{enumerate}
-%
-The observation and action spaces are detailed in Sections~\ref{sec:obs_space} and~\ref{sec:action_space} (Chapter~4); both constructions are factored as swappable functions so the interface supports per-robot egocentric observations without changes to the simulator.
-
-The robustness of this interface is supported by an automated test suite of 174
-unit tests (with 4 GPU-specific tests skipped in the absence of a GPU) covering
-physics correctness, Gymnasium API compliance, batched stepping and auto-reset,
-and the SB3 adapter protocol.  The simulator is therefore a validated, reusable artifact: straightforward to
-call from a learner while preserving the vectorization that the throughput
-results depend on.
-Figure~\ref{fig:pygame_window} shows the Pygame-based renderer used during
-development to visualise running matches and trained policies.
-
-%% FIGURE SUGGESTION 2: An architecture/data-flow diagram, the batched SimState flowing through
-%% jit(vmap(step)), and the VSSVecEnv → SB3 adapter → PPO learner path. Mirror
-%% the "processes communication schema" style used in the prior ITAndroids TGs,
-%% but for an on-device loop rather than a socket loop — the contrast makes the
-%% architectural contribution legible at a glance.
-
-\begin{figure}[h]
-    \centering
-    \includegraphics[width=0.8\textwidth]{Cap5/pygame_window.png}
-    \caption{Pygame~\cite{pygame2024} window showing a 3v3 match with the square rigid-body robot shapes, direction indicators, and HUD.}
-    \label{fig:pygame_window}
-\end{figure}
-
-% ------------------------------------------------------------------
-\subsection{Prioritized-Level-Replay Sampler}
-% ------------------------------------------------------------------
-
-The TG-1 deliverable for the \gls{plr} sampler is the initialization
-interface that will serve as its insertion point (the sampler design is
-described in Section~4.7 and deferred to TG-2).  The interface accepts an
-external source for episode configurations in place of the fixed kickoff and
-random modes, and the JAX backend is \texttt{vmap}-ready so that a full
-batch of sampler-supplied states can be initialized on device in a single
-call.  Sampler implementation and its sample-efficiency evaluation are
-deferred to TG-2.
-
-% ------------------------------------------------------------------
-\subsection{Early Training Validation}
-\label{sec:early_training}
-% ------------------------------------------------------------------
-
-A final preliminary result is an end-to-end training smoke test confirming that
-the \gls{ppo} loop runs correctly on the new simulator.  Using the batched
-environment through the SB3 adapter, a Stage-1 configuration (the controlled
-team alone, against stationary opponents) was trained with the shaped reward
-described in Chapter~4: the sparse $\pm 1$ goal signal augmented by a small
-dense term proportional to the ball's forward progress, with the shaping
-coefficient set so that its total episodic contribution cannot exceed a single
-goal event.  Training runs are tracked with MLflow, logging per-generation mean,
-minimum, and maximum reward together with episode length.
-For these runs, with 256 environments and a 300-step episode cap, one
-generation collects $256 \times 300 = 76{,}800$ environment transitions.
-
-These early training experiments serve to confirm that rollout collection,
-advantage estimation, optimization, and checkpointing operate correctly on the
-new infrastructure, not to produce a competitive policy.
-Table~\ref{tab:smoke_config} lists every setting that differs from the
-simulator defaults or that is shared across both runs; the physics contract
-(Table~\ref{tab:physics_design}, Chapter~4) and observation layout
-(Table~\ref{tab:obs}) apply unchanged unless noted.
-Both runs were executed on a MacBook with an Apple M4 Pro chip,
-using the batched JAX backend.
-Any learning curve reported at this stage should be read as a functional
-validation rather than a performance result.
+Shapes are static, so XLA compiles several generations into a single program and Python only intervenes to log
+metrics and write snapshots.  Table~\ref{tab:ppo_hparams} lists the hyperparameters.
 
 \begin{table}[ht]
     \centering
-    \caption{TG-1 smoke-test configuration
-    (\texttt{scripts/smoke.py}).  Rows marked ``default'' use
-    \texttt{vsss\_sim.config} or SB3 defaults unless overridden on the CLI.}
-    \label{tab:smoke_config}
+    \caption{PPO hyperparameters of the experiments (configuration files \texttt{experiment27\_replay0} and \texttt{experiment27\_replay25}, which differ only in $\rho$).}
+    \label{tab:ppo_hparams}
     \small
-    \begin{tabular}{p{0.36\linewidth}p{0.22\linewidth}p{0.34\linewidth}}
+    \begin{tabular}{lr@{\hspace{2em}}lr}
         \toprule
-        \textbf{Parameter} & \textbf{Value} & \textbf{Source} \\
-        \midrule
-        \multicolumn{3}{l}{\textit{Environment (both runs)}} \\
-        Parallel environments     & $256$ & \texttt{--num-envs} \\
-        Physics backend           & JAX (batched) & \texttt{VSSVecEnv} \\
-        Controlled team           & Blue ($6$ actions) & \texttt{VSSEnv} \\
-        Opponent policy           & Stationary & \texttt{opponent\_policy} \\
-        Episode cap               & $300$ steps ($5$\,s) & \texttt{--max-episode-steps} \\
-        Default episode cap       & $1200$ steps ($20$\,s) & \texttt{MAX\_EPISODE\_STEPS} (not used) \\
-        Control frequency         & $60$\,Hz, $4$ sub-steps & \texttt{FPS}, \texttt{SUB\_STEPS} \\
-        Reward                    & Eq.~\eqref{eq:reward}, $\beta=0.10$ & \texttt{BALL\_FORWARD\_REWARD\_COEF} \\
-        Observation               & $\mathbb{R}^{46}$ (Table~\ref{tab:obs}) & default \\
-        \midrule
-        \multicolumn{3}{l}{\textit{PPO / SB3 (both runs)}} \\
-        Algorithm / policy        & PPO, \texttt{MlpPolicy} & \texttt{PARAMS} \\
-        Learning rate             & $3\times 10^{-4}$ & \texttt{PARAMS} \\
-        Rollout length per env    & $300$ & \texttt{--n-steps} auto-aligned to episode cap \\
-        PPO device                & CPU & \texttt{device="cpu"} in script \\
-        \midrule
-        \multicolumn{3}{l}{\textit{Run A (Figure~\ref{fig:plot_random})}} \\
-        Initialization            & \texttt{InitMode.RANDOM} & \texttt{--init-mode random} \\
-        Generations               & $900$ & \texttt{--generations 900} \\
-        \midrule
-        \multicolumn{3}{l}{\textit{Run B (Figure~\ref{fig:plot_kickoff})}} \\
-        Initialization            & \texttt{InitMode.KICKOFF} & \texttt{--init-mode kickoff} (default) \\
-        Generations               & $123$ & \texttt{--generations 123} \\
+        Parallel environments $N$ (per lineage) & $1024$ & Discount $\gamma$ & $0.99$ \\
+        Rollout length $T$        & $128$  & GAE $\lambda$     & $0.95$ \\
+        Epochs $E$ / minibatches $M$ & $4$ / $8$ & Clip $\epsilon$ & $0.2$ \\
+        Learning rate             & $3\times10^{-4}$ & Value / entropy coef. & $0.5$ / $0.01$ \\
+        Max gradient norm         & $0.5$  & Episode limit     & $100$ steps \\
+        Generations               & $3000$ & Lineages          & $16$ \\
         \bottomrule
     \end{tabular}
 \end{table}
 
-Two initialization modes were compared.  In the first run, robots and the ball
-were placed at uniformly random positions across the field at the start of each
-episode (random initialization).  The per-generation mean reward over 900
-generations is shown in Figure~\ref{fig:plot_random}.  Despite running for
-nearly an order of magnitude more generations than the kickoff run, the policy
-failed to make consistent progress: reward remains in the range $10^{-2}$
-throughout training, with high variance and no discernible upward trend.  This
-result is consistent with the known difficulty of random initialization in sparse
-goal-scoring environments — the agent rarely encounters ball-near-goal
-configurations from which meaningful reward can be obtained, so the gradient
-signal is too weak to drive reliable improvement.
-
-\begin{figure}[ht]
-    \centering
-    \includegraphics[width=0.85\textwidth]{Cap5/plot_random.png}
-    \caption{Per-generation mean episode reward (log scale) for Run~A in
-    Table~\ref{tab:smoke_config} (random initialization, 900 generations).
-    The reward curve remains stuck in the range $10^{-2}$, confirming that flat random initialization provides insufficient learning signal in the sparse goal-scoring setting.}
-    \label{fig:plot_random}
-\end{figure}
-
-In the second run, episodes began from the standard kickoff formation with small
-random jitter (kickoff initialization), which places the ball at the centre
-and the robots near their starting positions.  The per-generation mean and
-minimum reward over 123 generations are shown in
-Figure~\ref{fig:plot_kickoff}.  Here the policy improves rapidly: mean reward
-is near zero for the first 50 generations and then rises steeply, reaching
-roughly 2.0 by generation 120 — a value corresponding to consistent
-multi-goal episodes.  The minimum reward tracks near zero throughout, indicating
-that some environments within the batch fail to score while the mean is already
-high, which is expected early in training when exploration varies widely across
-parallel instances.
-
-\begin{figure}[ht]
-    \centering
-    \includegraphics[width=0.85\textwidth]{Cap5/plot_kickoff.png}
-    \caption{Per-generation mean and minimum episode reward for Run~B in
-    Table~\ref{tab:smoke_config} (kickoff initialization, 123 generations).
-    The policy converges rapidly
-    once learning begins around generation 60, validating that the end-to-end
-    training loop operates correctly under structured initialization.}
-    \label{fig:plot_kickoff}
-\end{figure}
-
-The two runs validate the training infrastructure and motivate the
-prioritized-level-replay curriculum.  Kickoff initialization confirms that the
-\gls{ppo} loop works, but does not cover the diversity of game states the
-policy must handle.  Random initialization covers that diversity but provides
-too sparse a signal to drive learning.  The \gls{plr} sampler is designed to
-interpolate between these extremes: it steers the distribution of initial
-states toward configurations where the current policy's value-prediction error
-is largest, balancing sufficient difficulty with sufficient learning signal.
-
 % ==================================================================
-\section{Future Planned Results}
-\label{sec:future_planned_results}
-% ==================================================================
-
-The infrastructure validated above is the foundation for the experiments
-planned for TG-2.  This section states what those experiments are and what each
-is intended to show.
-
-\subsection{Closing the throughput gap with a JAX-native learner.}
-The throughput measurements identified two ceilings: the Gymnasium boundary and
-the CPU-bound PyTorch updates of SB3.  Both stem from the learner living outside
-the accelerator.  The planned remedy is a fully JAX-resident training path
-following the Anakin podracer architecture~\cite{hessel2021podracer}, in which
-the policy, rollout collection, and gradient updates all execute on device
-alongside the simulator, removing per-step host transfers entirely.
-Stoix~\cite{toledo2024stoix} provides a compiled \gls{ppo} implementation that
-supports this regime directly.  The target is to bring end-to-end \gls{ppo}
-throughput closer to the raw batched-kernel ceiling --- on the order of
-$5 \times 10^{6}$ steps per second on the RTX~3060, against the present peak
-of about $6 \times 10^{4}$ of the SB3 path.  The expected result is a
-before/after throughput comparison of the full training loop, not merely the
-simulator in isolation.
-
-\subsection{Prioritized-level-replay sample efficiency.}
-With the sampler integrated, the central evaluation is whether prioritizing
-high-learning-potential scenarios improves sample efficiency relative to uniform
-initialization.  The planned result is a set of learning curves (reward and goal
-rate versus environment steps) comparing the \gls{plr} sampler against a uniform
-baseline under identical compute budgets, accompanied by qualitative inspection
-of which scenarios the sampler prioritizes over the course of training.
-
-\subsection{Two-stage curriculum and self-play.}
-The opponents are currently stationary.  TG-2 will introduce the second
-curriculum stage, replacing them with self-play opponents drawn from a history
-of past policies, and will evaluate the effect of the opponent-sampling scheme
-on the robustness of the learned team.  The planned result is a comparison of
-policies trained with and without the curriculum, and with different
-opponent-sampling strategies.
-
-\subsection{Symmetry exploitation.}
-TG-2 will quantify the benefit of the permutation- and reflection-symmetry
-mechanisms described in Chapter~4, through an ablation comparing training with
-and without episode-level permutation and reflection augmentation.  Exact
-parameter sharing remains a separate experiment for the later decentralized
-per-robot formulation.
-
-\subsection{Evaluation against the classical strategy.}
-Finally, the trained team will be evaluated against the ITAndroids classical
-strategy stack, reporting win rate, goal difference, and qualitative behavioral
-analysis — the measure of whether a learned 3v3 team policy is competitive with
-the hand-engineered baseline.  Sim-to-real considerations (domain randomization,
-noise injection) frame this evaluation as a step toward eventual deployment, the
-longer-term goal beyond TG-2.

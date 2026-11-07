@@ -1,7 +1,5 @@
-% ============================================================
-%  THEORETICAL BACKGROUND — MACHINE LEARNING / RL CHAPTER
-%  Drop-in replacement for the seven-section outline.
-% ============================================================
+This chapter presents the machine-learning background used in the remainder of the work: neural networks, reinforcement learning with \gls{ppo}, curriculum learning and prioritized level replay,
+multi-agent self-play, symmetry, and hardware-accelerated simulation.
 
 \section{Neural Networks}
 
@@ -17,7 +15,8 @@ The basic building block of a neural network is an artificial neuron, which
 computes a scalar output from a vector input $\mathbf{x} \in \mathbb{R}^n$:
 %
 \begin{equation}
-    z = \sigma\!\left(\mathbf{w}^\top \mathbf{x} + b\right),
+    \hat{y} = \sigma\!\left(\mathbf{w}^\top \mathbf{x} + b\right),
+    \label{eq:neuron}
 \end{equation}
 %
 where $\mathbf{w} \in \mathbb{R}^n$ is a weight vector, $b \in \mathbb{R}$ is
@@ -37,7 +36,7 @@ Figure~\ref{fig:perceptron} summarizes the data flow for one such unit.
     }
     \caption{Single artificial neuron: weighted sum of inputs $x_i$, bias absorbed
     into weights if a constant input is used, nonlinear activation $\sigma$,
-    and scalar output $\hat{y}$ (cf.\ Equation above with $\sigma = f$).}
+    and scalar output $\hat{y}$ (Equation~\eqref{eq:neuron}).}
     \label{fig:perceptron}
 \end{figure}
 
@@ -57,8 +56,8 @@ policy), or a scalar (for a value estimate).  The universal approximation
 theorem guarantees that a single sufficiently wide hidden layer can approximate
 any continuous function on a compact domain to arbitrary precision~\cite{goodfellow2016deep},
 although in practice depth is more parameter-efficient than width.
-Figure~\ref{fig:mlp} shows a representative fully-connected depth (three
-hidden layers).
+Figure~\ref{fig:mlp} shows a fully-connected network with three
+hidden layers.
 
 \begin{figure}[ht]
     \centering
@@ -88,29 +87,17 @@ layers.  Greater depth allows the network to compose simple transformations
 into increasingly abstract representations: early layers typically capture
 low-level features while later layers encode task-relevant structure.  This
 hierarchical inductive bias has proven effective across perception, language,
-and control, including in high-dimensional continuous-control settings
-directly comparable to this work~\cite{silver2016mastering,berner2019dota}.
+and control, as in the game-playing agents cited in Chapter~\ref{chap:intro}~\cite{silver2016mastering,berner2019dota}.
 
-For the \gls{vsss} policy, the observation vector includes the positions,
-orientations, and velocities of all robots and the ball — the full simulator
-state — so no hidden dynamics need to be inferred from a history of frames.
-Recurrent architectures are therefore unnecessary; a feed-forward network
-suffices.  A fully-connected
-\gls{mlp} with two or three hidden layers captures the required nonlinear
-dependencies while remaining fast to evaluate on a \gls{gpu} across thousands
-of parallel environments.  The actor and critic each use a separate
-\gls{mlp}; sharing lower layers is possible but not assumed in the baseline
-design.
+For the \gls{vsss} policy, the observation contains the noisy positions and
+headings of all robots and the ball.  Velocities are not observed; they are inferred from a history of eight stacked frames (Section~\ref{sec:formulation}), so a feed-forward network on the
+stacked input suffices and recurrent architectures are unnecessary.  The actor is a fully-connected
+\gls{mlp} with hidden layers of $300$, $200$ and $100$ units and the critic one with $256$, $128$ and $64$ units, both with $\tanh$ activations, which remain fast to evaluate on a \gls{gpu} across thousands
+of parallel environments.  The actor and critic are separate networks; sharing lower layers is possible but not used.
 
-Two practical techniques are relevant to stability in deep \gls{rl}.  First,
-layer normalization~\cite{goodfellow2016deep} standardizes activations within
-each layer, reducing sensitivity to the scale of inputs and mitigating the
-non-stationarity of the input distribution that arises because the policy
-changes throughout training.  Second, the outputs of the final actor layer
-are initialized with small weights so that the policy starts close to a
-uniform distribution, allowing the agent to explore broadly early in
-training.  Both choices are standard in the \gls{ppo} implementations applied
-to continuous-control domains.
+Two practical details are relevant to stability in deep \gls{rl}.  Hidden layers use orthogonal initialization with gain $\sqrt{2}$, and the output heads of the actor use a small gain ($0.01$), so that the initial
+distribution is nearly the same for any input and close to a symmetric Beta distribution with parameters near $1.7$, which lets the agent explore broadly early in training.  Layer normalization
+is a common option for standardizing activations but is not used here.
 
 \section{Reinforcement Learning}
 \label{sec:rl}
@@ -119,7 +106,7 @@ to continuous-control domains.
 
 Reinforcement learning formalizes sequential decision-making as interaction
 between an agent and an environment~\cite{sutton2018reinforcement}.  In the
-Markov decision process (\gls{mdp}) formulation, the environment is described
+Markov decision process (\acrshort{mdp}) formulation, the environment is described
 by the tuple $\langle \gls{state_space}, \gls{action_space}, \mathcal{P}, R, \gls{discount_factor}
 \rangle$, where \gls{state_space} is the state space, \gls{action_space} is the action
 space, $\mathcal{P}(s_{t+1} \mid s_t, a_t)$ is the transition distribution,
@@ -129,11 +116,11 @@ The agent acts according to a policy \gls{policy} parameterized by $\theta$.
 Its objective is to maximize the expected discounted return:
 %
 \begin{equation}
-    J(\theta) = \mathbb{E}_{\pi_\theta}\!\left[\sum_{t=0}^{T} \gamma^t
+    J(\theta) = \mathbb{E}_{\pi_\theta}\!\left[\sum_{t=0}^{H} \gamma^t
     r_t\right],
 \end{equation}
 %
-where $r_t \in \mathbb{R}$ is the reward received at step $t$ and $T$ is the
+where $r_t \in \mathbb{R}$ is the reward received at step $t$ and $H$ is the
 episode horizon.  Value functions summarize long-term quality.  The state-value function
 \gls{value_function} gives the expected return from state $s$ under $\pi$, and the
 action-value function $Q^\pi(s,a)$ conditions additionally on taking action
@@ -211,7 +198,7 @@ sample efficiency than a plain policy-gradient update while remaining simpler
 to implement than \gls{trpo}~\cite{schulman2015trpo}.
 
 
-Its robustness across the \gls{vsss} domain~\cite{tg_thiago,tg_thay,brandao2022} make it the
+Its use across the \gls{vsss} literature~\cite{tg_thiago,tg_thay,brandao2022} makes it the
 natural algorithm choice for this work.
 
 % ------------------------------------------------------------------
@@ -227,10 +214,9 @@ enough informative signal to make progress.  A curriculum provides a ramp that
 keeps the task at a difficulty where learning can occur.
 
 For \gls{vsss}, the final objective (winning 3v3 matches) is far too complex
-for a randomly-initialized policy to explore productively.  A staged approach
-may address this: allied robots first practice ball conduction and basic
-positioning without any opposition, then face opponents only once those
-sub-skills are established.
+for a randomly-initialized policy to explore productively, and random initial
+situations are mostly uninformative.  A curriculum can address this by choosing which situations the policy practices,
+and, with self-play, which opponent it faces (Chapter~\ref{chap:training}).
 
 % ------------------------------------------------------------------
 \subsection{Prioritized Level Replay}
@@ -244,10 +230,10 @@ be either too easy (the agent already solves them reliably) or too hard
 (the agent cannot yet extract any useful gradient).  The most informative
 situations are those at the boundary of current competence.
 
-After each episode of length $T$ on level $l_i$, \gls{plr} computes a score
+After each episode of length $H$ on level $l_i$, \gls{plr} computes a score
 %
 \begin{equation}
-    S_i = \frac{1}{T}\sum_{t=0}^{T}\bigl|\hat{A}_t^{\mathrm{GAE}}\bigr|,
+    S_i = \frac{1}{H}\sum_{t=0}^{H}\bigl|\hat{A}_t^{\mathrm{GAE}}\bigr|,
     \label{eq:plr_score}
 \end{equation}
 %
@@ -261,10 +247,11 @@ $P_{\mathrm{replay}}$ interpolates between high-priority (high value-error)
 and unseen levels, inducing an implicit curriculum without requiring prior
 knowledge of level difficulty.
 
+\textcite{rutherford2024noregrets} investigate such regret approximations for curriculum discovery and propose training directly on levels with high learnability, those that the agent can sometimes solve but not always.  The curriculum of Section~\ref{sec:curriculum} is inspired by this mechanism but is simpler: it scores levels by episode returns instead of value errors and keeps no staleness term.
 In the context of this thesis, a level is a game initialization: robot poses,
 ball position, velocities, and any relevant game-state context.  Because
 \gls{vsss} admits a large space of initial configurations with very unequal
-learning value, \gls{plr} is a natural fit.  The high-throughput simulator
+learning value, a \gls{plr}-inspired curriculum is a natural fit.  The high-throughput simulator
 developed here makes the approach practical: with enough parallel environments,
 the overhead of maintaining a priority buffer and replaying specific
 initializations is negligible compared to the benefit of directing more
@@ -277,25 +264,25 @@ experience toward informative situations.
 When several policies act in the same environment, the standard single-agent
 \gls{mdp} formulation no longer fully characterizes the learning problem.  Each
 agent's optimal policy depends on the behavior of the others, which themselves
-change during training — a property known as non-stationarity.  In cooperative
+change during training, a property known as non-stationarity.  In cooperative
 settings this manifests as a credit-assignment problem: individual contributions
 to a shared reward are difficult to attribute.  In competitive settings, the
 moving target created by an improving opponent can destabilize learning.  Robot
 soccer combines both regimes within the same episode.
 
-Self-play addresses the competitive aspect by using the agent itself — or
-previously saved versions — as the opponent.  The opponent automatically
+Self-play addresses the competitive aspect by using the agent itself, or
+previously saved versions, as the opponent.  The opponent automatically
 becomes harder as the agent improves, creating a natural difficulty curriculum.
 However, training exclusively against the latest version of the policy can lead
 to \emph{strategy collapse}: the agent discovers a local best-response that
 dominates the current opponent but is easily exploited by a broader range of
-strategies.  Fictitious self-play~\cite{brown1951fp} mitigates this by playing
+strategies.  Fictitious play~\cite{brown1951fp} mitigates this by playing
 against a mixture over all historical policies, with convergence guarantees for
 two-player zero-sum games.  In practice, emphasizing more recent opponents
 while retaining some probability on older ones achieves a good balance between
-generalization and training efficiency — the family of opponent-sampling
-schemes studied by \cite{master_thay} and the league-training approach of
-\cite{starcraft_marl} are both instances of this principle.
+generalization and training efficiency; the family of opponent-sampling
+schemes studied by \textcite{master_thay} and the league-training approach of
+\textcite{starcraft_marl} are both instances of this principle.
 
 \gls{ctde} is a standard architecture for cooperative teams: during training,
 each agent's critic may access global state to produce more accurate value
@@ -307,20 +294,23 @@ constraining the policy to require it.
 
 % ------------------------------------------------------------------
 \subsection{Exploiting Symmetry in the VSSS Problem}
+\label{sec:symmetry_theory}
 % ------------------------------------------------------------------
 
-The 3v3 \gls{vsss} setting has two classes of symmetry that can be exploited
+The 3v3 \gls{vsss} setting has three symmetries that can be exploited
 to improve learning efficiency.
 
 \textbf{Permutation symmetry.}  The three robots on the same team are
 homogeneous: they have identical kinematics and contribute to the same team
 objective.  The value of a team state should therefore be invariant to which
 robot is labeled 1, 2, or 3.  Sharing policy and critic parameters across all
-three robots exploits this directly — a single network is updated using
-transitions from all three agents simultaneously, tripling effective data
-throughput without requiring a larger batch.  \textcite{brandao2022} applied
-exactly this principle in their \gls{vsss} multi-agent formulation, observing
-that shared parameters provide a natural implicit regularization.
+three robots exploits this directly: a single network is updated with
+three transitions per environment step, one per robot.  \textcite{brandao2022} applied
+this principle in their \gls{vsss} multi-agent formulation, noting that parameter sharing can save memory and favor
+generalization, since the network learns from the experience of all the agents.
+
+\textbf{Side symmetry.}  The two teams play the same game from opposite sides.  Expressing each team's observation in a canonical frame, as if it attacked toward the same goal, lets one policy play
+either side, so the same network can serve as learner and as opponent.
 
 \textbf{Reflection symmetry.}  The VSSS field is bilaterally symmetric about
 its longitudinal axis.  A game state mirrored across that axis, with signs of
@@ -331,20 +321,17 @@ with a reflected view of an episode and mapping its actions back to simulation
 coordinates.  Since the transform is applied while collecting the rollout, the
 resulting samples remain on-policy.
 
-Both forms of symmetry are treated as first-class design choices in the
-training methodology rather than as optional post-processing.
+The three symmetries are used in the methodology of Section~\ref{sec:symmetries}.
 
-Exploiting these symmetries carries a trade-off worth acknowledging.
+Exploiting these symmetries has a cost.
 Sharing parameters across all three allied robots pushes their behavior toward
 a common policy: the network learns a single strategy that works regardless
 of which robot slot it occupies.  In most of the field this regularization is
 beneficial, but it limits the diversity of individual robot behaviors the team
-can express.  Roles that require genuinely distinct specializations — a
-dedicated goalkeeper versus an aggressive striker, for instance — are harder
+can express.  Roles that require distinct specializations, such as a
+dedicated goalkeeper versus an aggressive striker, are harder
 to learn under strict parameter sharing, since the same weights must serve
-both contexts.  This limitation becomes more relevant as the curriculum extends
-to adversarial self-play, where behavioral diversity across the team
-is a source of robustness against varied opponent strategies.
+both contexts.  Behavioral diversity across the team would help against varied opponent strategies in adversarial self-play, so this limitation matters here.
 
 % ------------------------------------------------------------------
 \section{Hardware-Accelerated Simulation}
@@ -357,34 +344,32 @@ itself gains nothing from the accelerator's parallelism.  Closing this gap
 requires both the simulator and the learning algorithm to reside on the same
 device.
 
-\gls{jax}~\cite{jax2018github} provides three complementary transformations
+JAX~\cite{jax2018github} provides three complementary transformations
 that make GPU-parallel simulation practical.  \texttt{jit} compiles a
 numerical function to native accelerator code ahead of execution, eliminating
 Python-level dispatch overhead.  \texttt{vmap} lifts a single-environment step
 into a vectorized step over a batch of environments, enabling thousands of
 independent games to advance in a single device call.  \texttt{scan} fuses a
 fixed-horizon rollout into one compiled operation rather than an interpreted
-loop.  Because \gls{jax} programs are purely functional, state is threaded
+loop.  Because JAX programs are purely functional, state is threaded
 explicitly with no hidden side-effects, so the full collect-and-update loop
 resides on the accelerator without host--device copies.  The design patterns
 for exploiting these capabilities at scale were systematized in the Anakin and
 Sebulba ``podracer'' architectures~\cite{hessel2021podracer}: Anakin compiles
 acting and learning into one device-resident graph, while Sebulba splits actors
 from learners and is better suited when the environment is not itself written
-in \gls{jax}.
+in JAX.
 
 These properties are only useful if the learning algorithm shares the same
 device. \gls{sb3} ~\cite{raffin2021sb3} is a widely used \gls{ppo}
-reference implementation built on PyTorch; coupling it to a \gls{jax}
+reference implementation built on PyTorch; coupling it to a JAX
 simulator reintroduces a framework boundary and a host-side training loop,
 restoring the same per-step transfer overhead the batched simulator removes.
-A fully \gls{jax}-resident training path, such as those provided by
-RLax~\cite{deepmind2020rlax} and Stoix~\cite{toledo2024stoix}, avoids this
-boundary entirely.
+A fully JAX-resident training path, such as the one in
+Stoix~\cite{toledo2024stoix} (built on JAX building blocks such as RLax~\cite{deepmind2020rlax}), avoids this
+boundary.
 
-For \gls{vsss}, the physics model (rigid-body kinematics, elastic wall
-collisions, and a friction model for ball--floor contact) is simple enough to
-implement as differentiable array operations without any approximation that
-would matter for policy learning.  Expressing the environment in \gls{jax}
+For \gls{vsss}, the physics model (rigid-body kinematics, wall collisions, and a friction model for ball--floor contact) is cheap enough to
+express as batched array operations, with the simplifications listed in Section~\ref{sec:sim_physics}.  Expressing the environment in JAX
 therefore places it in the fully compiled regime, where simulation, action
 selection, and the policy update run as one device-resident program.

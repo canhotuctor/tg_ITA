@@ -1,0 +1,123 @@
+% In the preamble:
+% \usepackage{tikz}
+% \usetikzlibrary{arrows.meta}
+
+\begin{tikzpicture}[
+    neuron/.style={
+        circle,
+        draw=black,
+        line width=0.9pt,
+        minimum size=9mm
+    },
+    input neuron/.style={
+        neuron,
+        fill=blue!15
+    },
+    hidden neuron/.style={
+        neuron,
+        fill=green!15
+    },
+    output neuron/.style={
+        neuron,
+        fill=red!15
+    },
+    conn/.style={
+        -{Latex[length=2mm]},
+        draw=gray!100,
+        line width=0.7pt
+    },
+    io/.style={
+        -{Latex[length=2mm]},
+        draw=black,
+        line width=0.9pt
+    },
+    label/.style={
+        font=\footnotesize,
+        text=black
+    }
+]
+
+% ------------------------------------------------
+% Input arrows
+% ------------------------------------------------
+\draw[io] (-0.9,  1.4) -- (0.45,  1.4);
+\draw[io] (-0.9,  0.0) -- (0.45,  0.0);
+\draw[io] (-0.9, -1.4) -- (0.45, -1.4);
+
+\node[label] at (-1.6,0) {Inputs};
+
+% ------------------------------------------------
+% Input layer
+% ------------------------------------------------
+\node[input neuron]  (I1) at (1.0,  1.4) {};
+\node[input neuron]  (I2) at (1.0,  0.0) {};
+\node[input neuron]  (I3) at (1.0, -1.4) {};
+
+% ------------------------------------------------
+% Hidden layer 1
+% ------------------------------------------------
+\node[hidden neuron] (H11) at (2.9,  2.1) {};
+\node[hidden neuron] (H12) at (2.9,  0.7) {};
+\node[hidden neuron] (H13) at (2.9, -0.7) {};
+\node[hidden neuron] (H14) at (2.9, -2.1) {};
+
+% ------------------------------------------------
+% Hidden layer 2
+% ------------------------------------------------
+\node[hidden neuron] (H21) at (4.8,  2.1) {};
+\node[hidden neuron] (H22) at (4.8,  0.7) {};
+\node[hidden neuron] (H23) at (4.8, -0.7) {};
+\node[hidden neuron] (H24) at (4.8, -2.1) {};
+
+% ------------------------------------------------
+% Hidden layer 3
+% ------------------------------------------------
+\node[hidden neuron] (H31) at (6.7,  2.1) {};
+\node[hidden neuron] (H32) at (6.7,  0.7) {};
+\node[hidden neuron] (H33) at (6.7, -0.7) {};
+\node[hidden neuron] (H34) at (6.7, -2.1) {};
+
+% ------------------------------------------------
+% Output layer
+% ------------------------------------------------
+\node[output neuron] (O1) at (8.6,  0.7) {};
+\node[output neuron] (O2) at (8.6, -0.7) {};
+
+% ------------------------------------------------
+% Connections: input -> hidden 1
+% ------------------------------------------------
+\foreach \i in {I1,I2,I3}
+    \foreach \j in {H11,H12,H13,H14}
+        \draw[conn] (\i) -- (\j);
+
+% Hidden 1 -> hidden 2
+\foreach \i in {H11,H12,H13,H14}
+    \foreach \j in {H21,H22,H23,H24}
+        \draw[conn] (\i) -- (\j);
+
+% Hidden 2 -> hidden 3
+\foreach \i in {H21,H22,H23,H24}
+    \foreach \j in {H31,H32,H33,H34}
+        \draw[conn] (\i) -- (\j);
+
+% Hidden 3 -> output
+\foreach \i in {H31,H32,H33,H34}
+    \foreach \j in {O1,O2}
+        \draw[conn] (\i) -- (\j);
+
+% ------------------------------------------------
+% Output arrows
+% ------------------------------------------------
+\draw[io] (O1) -- (10.0,  0.7);
+\draw[io] (O2) -- (10.0, -0.7);
+
+\node[label] at (10.7,0) {Outputs};
+
+% ------------------------------------------------
+% Layer labels
+% ------------------------------------------------
+\node[label] at (1.0,-2.95) {Input Layer};
+\node[label] at (4.8,-3.25) {Hidden Layers};
+\node[label] at (8.6,-2.95) {Output Layer};
+
+\end{tikzpicture}

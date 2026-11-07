@@ -1,23 +1,22 @@
 % ============================================================
-%  CHAPTER 1 — INTRODUCTION
+%  CHAPTER 1 - INTRODUCTION
 % ============================================================
 
 In this chapter, we present the motivation for the work, the contextualization
-of the problem, the main and secondary objectives, a brief literature review,
-and the contributions of this TG-1, before giving an outline of the remaining
+of the problem, the objective, a brief literature review,
+and the contributions of this work, before giving an outline of the remaining
 chapters.
 
 % ------------------------------------------------------------------
 \section{Motivation}
 
-Few engineering artifacts are asked to do as much at once as an autonomous
-robot.  To act well, it must turn a stream of noisy, partial measurements into
-a coherent picture of its surroundings, anticipate how that picture will change,
+An autonomous robot has to turn a stream of noisy, partial measurements into
+a picture of its surroundings, anticipate how that picture will change,
 and commit to an action before the world has finished moving.  This loop runs
-continuously, under uncertainty, and with consequences that are immediate and
-physical.  The same demand appears whether the robot is sorting parts on a
+continuously, under uncertainty, and with immediate physical consequences.
+The same demand appears whether the robot is sorting parts on a
 factory line, inspecting a pipeline on the seabed, or driving across another
-planet: perceive a complex, changing world and decide what to do next.
+planet: perceive a changing world and decide what to do next.
 
 % \color{red}
 % figura 1: some robotics examples
@@ -33,51 +32,49 @@ resulting logic becomes difficult to maintain, and little of the effort carries
 over when the task or the environment changes.
 
 A different answer matured over the past decade.  Instead of prescribing
-behavior, \gls{drl} lets an agent uncover it, by repeatedly acting in an
-environment and adjusting toward whatever earns reward.  What makes the approach
-compelling is less any single result than the steadily widening class of
-problems it can absorb, as well as the way those problems can be ordered by
+behavior, \gls{drl} lets an agent discover it, by repeatedly acting in an
+environment and adjusting toward whatever earns reward.  The class of
+problems it can handle has widened steadily, and these problems can be ordered by
 how closely they resemble the physical world a robot inhabits.
 
 At the structured extreme sit fully observable, turn-based games with discrete
 moves.  Go is the canonical example: a player sees the entire board, acts only
 on their turn, and chooses among a finite set of legal moves, yet the game hides
-on the order of $10^{170}$ positions behind those simple rules.  In 2016
+on the order of $10^{170}$ positions behind those simple rules.  In 2015
 AlphaGo became the first program to defeat a professional human
 player~\cite{silver2016mastering}, and its successor AlphaGo Zero reached the
 same standard learning purely from self-play, without a single human game as a
 reference~\cite{silver2017mastering}.
 
-%% FIGURE SUGGESTION 1: AlphaGo — the Lee Sedol match photograph (2016).
+%% FIGURE SUGGESTION 1: AlphaGo: the Lee Sedol match photograph (2016).
 %% Widely available under press license from DeepMind; cite the original source.
 
 Relaxing those assumptions one at a time brings the setting closer to robotics.
 Let many agents act simultaneously, in continuous time, while hiding part of the
-state from each of them, and the difficulty changes in kind rather than degree.
+state from each of them, and the problem changes qualitatively.
 AlphaStar reached this regime in StarCraft~II (Figure~\ref{fig:starcraft_2_game}),
 where an agent must interleave long-horizon economic planning with split-second
 control over individual units, select among roughly $10^{26}$ actions at every
-step, and do so without ever observing the full board~\cite{starcraft_marl}.  Tellingly, its robustness did
-not come from optimizing against a single adversary but from training inside a
+step, and do so without ever observing the full board~\cite{starcraft_marl}.  Its robustness
+came not from optimizing against a single adversary but from training inside a
 \emph{league} of continually evolving rivals, so that no one exploitable
 strategy could survive.
 
 \begin{figure}[h]
     \centering
     \includegraphics[width=0.8\textwidth]{Cap1/starcraft2.png}
-    \caption{A picture of the StarCraft 2 game. Its possible to see a clash between units of Zerg and Terran factions. Credit: Blizzard Entertainment (\url{https://blizzard.com/}).}
+    \caption{A picture of the StarCraft 2 game. It is possible to see a clash between units of Zerg and Terran factions. Credit: Blizzard Entertainment (\url{https://blizzard.com/}).}
     \label{fig:starcraft_2_game}
 \end{figure}
 
-What every one of these results leaves untouched, however, is the body.  A
+None of these results involves a body.  A
 simulated agent issues an action and the action simply happens; a physical one
 must produce torques that move mass, manage balance and contact, and recover
 when the world reacts in ways no rule foresaw.
-This last frontier, continuous sensorimotor control on real hardware, is where
-progress is now most striking.
-Boston Dynamics has recently demonstrated its Atlas humanoid performing soccer
-skills that require dynamic, whole-body coordination on real hardware
-(Figure~\ref{fig:atlas_rabona}).
+Continuous sensorimotor control on real hardware is where
+progress is now most visible.
+Promotional material from Boston Dynamics shows its Atlas humanoid performing soccer
+skills (Figure~\ref{fig:atlas_rabona}), which suggests how far dynamic, whole-body coordination on hardware has come.
 
 \begin{figure}[h]
     \centering
@@ -99,9 +96,9 @@ physical world.
 \section{Contextualization}
 % ------------------------------------------------------------------
 
-In the context of Robot Soccer, various robotics leagues and competitions have surged in the last decades.
-One of the popular leagues in Brazil is the IEEE Very Small Size Soccer (\gls{vsss}),
-category in which two teams of
+In the context of Robot Soccer, various robotics leagues and competitions have emerged in the last decades.
+One of the popular leagues in Brazil is the IEEE \gls{vsss},
+a category in which two teams of
 differential-drive robots play on a flat field.  A camera mounted above the
 field estimates the positions of all robots and the ball; an off-board computer
 processes these estimates and sends wheel-speed commands to each robot via
@@ -118,7 +115,7 @@ Figure~\ref{fig:vsss_game_diagram} shows the common IEEE VSSS game setup.
 \end{figure}
 
 The ITAndroids \gls{vsss} team currently relies on a classical robotics stack
-for strategy, path planning, and low-level control — a hierarchy of carefully
+for strategy, path planning, and low-level control: a hierarchy of
 hand-crafted rules and heuristics that govern how each robot navigates the
 field and responds to game events. Figure~\ref{fig:vss_robots} shows a picture of the ITAndroids robots and the overhead-vision marker. This stack performs well in practice but
 has fundamental limitations.  Rule-based strategies are designed for a finite
@@ -129,7 +126,7 @@ team composition requires manual re-engineering.
 \begin{figure}[ht]
     \centering
     \includegraphics[width=0.75\textwidth]{Cap1/vss.jpeg}
-    \caption{ITAndroids \gls{vsss} robots and overhead-vision marker.}
+    \caption{ITAndroids \acrshort{vsss} robots and overhead-vision marker.}
     \label{fig:vss_robots}
 \end{figure}
 
@@ -138,7 +135,7 @@ a series of prior works, each addressing a different scope. \textcite{bassani202
 developed an open RL framework for \gls{vsss} and showed that
 a trained single-agent policy could match the level of human-designed
 strategies, reaching fourth place at the 2019 Latin American Robotics
-Competition (LARC). \textcite{medeiros2020} applied Proximal Policy Optimization (\gls{ppo})
+Competition (LARC). \textcite{medeiros2020} applied \gls{ppo}
 with curriculum learning to teach a single robot to intercept the ball in the
 presence of an opponent, outperforming both handcrafted baselines and agents
 trained without the curriculum.  \textcite{tg_thay} extended
@@ -147,8 +144,8 @@ the team's existing kicker.  Subsequent work by \textcite{master_thay} moved to 
 different opponent-sampling strategies affect the quality of the learned policy
 in penalty-kick scenarios.  \textcite{brandao2022} went
 further, applying \gls{ppo} with self-play to a full 3v3 team, simultaneously
-learning control and strategy, and demonstrating that the resulting policy
-could defeat the best available heuristic opponent with an 84\% win
+learning control and strategy, and reporting that the resulting policy
+defeated the best heuristic of the Pequi Mec\^anico team (VSSS-EMC) with an 84\% win
 rate.
 
 This thesis continues that line of work.  \textcite{brandao2022} showed
@@ -169,9 +166,10 @@ how many interactions can be produced per unit time.  This cost is one of the ma
 practical barriers that separate \gls{rl} research in \gls{vsss} from routine
 use inside the ITAndroids development cycle.
 
-The objective of TG-1 is to address the throughput barrier by building the
-simulation and training infrastructure that makes large-scale \gls{rl}
-practical for 3v3 \gls{vsss}. TG-2 will build on the infrastructure established here.
+The objective of this work is to remove that barrier and to use the resulting capacity: to build a simulator and a training
+suite that make large-scale \gls{rl} practical for 3v3 \gls{vsss}, to train a competitive team with them, and to evaluate which parts of the training
+procedure, in particular an online curriculum over initial situations, matter.  The simulator is faster than the ODE-based ones because its 2D physics is simpler and because it runs batched on a \gls{gpu} (Section~\ref{sec:throughput_bottleneck}); its contact physics is
+kept accurate where learning is sensitive to it.
 
 % ------------------------------------------------------------------
 \section{Literature Review}
@@ -201,8 +199,8 @@ human champions at the video game Dota~2~\cite{berner2019dota}, and AlphaStar
 reached Grandmaster level in StarCraft~II by training a league of continually
 adapting agents, each representing a distinct strategy, to prevent the policy
 from overfitting to a single style of play~\cite{starcraft_marl}.  The
-league-training idea — that competitive robustness requires facing a diverse
-population of opponents rather than only the latest policy — directly informs
+league-training idea, that robustness requires facing a diverse
+population of opponents and not only the latest policy, informs
 the self-play design considered in this work.
 
 \subsection{Reinforcement Learning in IEEE VSSS}
@@ -212,58 +210,51 @@ produced within the ITAndroids team, has progressively expanded the role of
 reinforcement learning from isolated skills toward full-team play.
 
 \textcite{medeiros2020} introduced reinforcement learning to \gls{vsss} strategy
-by training a single robot, with \gls{ppo}, to intercept and control the ball in
-the presence of an opponent.  Two design choices from that
-work recur throughout the subsequent literature and in this thesis.  First, the
-action space was taken as the robot's wheel speeds rather than a target position
-handed to an external controller, which forces the policy to solve the planning
-and control problems jointly.  Second, because goal events are too sparse to
+by training a single robot, with \gls{ppo}, in a scenario where a support player must stop the ball heading to its side
+in the presence of an opponent.  Two design choices from that
+work recur in the subsequent literature.  First, the
+action was a desired position on the field, converted into wheel commands by a navigation (line-following) controller, as in the 2019 monograph of the same author~\cite{tg_thiago}.  Second, because goal events are too sparse to
 drive early learning, the reward was shaped with intermediate terms and training
 was organized as a curriculum, with the agent and ball beginning close together
 and gradually separating and the opponent initially stationary and later set in
-motion.  Agents trained with this curriculum matched or outperformed both agents
-trained without it and the team's classical heuristics, establishing \gls{ppo}
-with curriculum learning as a strong baseline for the domain.
+motion.  Agents trained with this curriculum succeeded in $79.9\%$ of the episodes, against $72.1\%$ without it and $45.5\%$ for the
+team's classical heuristic.
 
-\textcite{master_thiago} later extended this framework, broadening
-from a single defensive skill to four scenarios — intercepting the ball on the
+The 2019 monograph~\cite{tg_thiago} also broadened the study from a single skill to four scenarios (intercepting the ball on the
 player's side and recovering it to the opponent's side, each with and without an
-opponent — and introducing cooperative self-play, in which each agent carries a
-copy of the same network and learns to coordinate with itself rather than treat
-its copy purely as an adversary. This is, to the author's
-knowledge, the first work to combine self-play with \gls{ppo} in \gls{vsss}, and
-its scenario-based curriculum and shared-network design are direct antecedents
-of the two-stage, symmetry-aware approach taken here.
+opponent).  The later master's thesis~\cite{master_thiago} switched the action to the desired wheel speeds (with a four-frame action repeat over $60$\,Hz physics, that is, $15$\,Hz),
+trained two robots cooperating in an offensive move with a single centralized network that permutes the state between agents, and introduced
+self-play; its author states that it is the first work to combine self-play with \gls{ppo} in \gls{vsss}.  Wheel-speed actions and shared networks are antecedents
+of the shared-policy, self-play approach taken here.
 
 \textcite{tg_Yamane} addressed a different role and a different challenge: a learned
-goalkeeper policy and, crucially, its transfer to physical
-hardware.  Where the earlier works evaluated policies only in
-simulation, this thesis confronts the reality gap between the simulator and the
+goalkeeper policy and its transfer to physical
+hardware.  While the earlier ITAndroids works evaluated policies only in
+simulation, that work confronts the reality gap between the simulator and the
 real robot, treating line-following control and decision-making under real
 sensing and actuation noise.  Its treatment of sim-to-real transfer frames the
 domain-randomization and noise-injection considerations that the present work
-defers to its own future-work agenda.
+leaves to future work.
 
 \textcite{master_thay} moved the framework into an explicitly adversarial,
 multi-agent regime, studying penalty-kick scenarios in which an attacker and a
 goalkeeper are trained against each other.  The central
 question of that work is how to choose the opponent during self-play.  It
 formalizes a family of opponent-sampling strategies that differ in how much of
-the training history they draw from — for instance, sampling uniformly from all
-past versions of the opponent, from only the most recent half, or from a fixed
-recent window — and analyzes how this choice affects the robustness and quality
-of the learned policy.  This is precisely the design space that the second
-curriculum stage of the present work must navigate, and Baldão's analysis is the
+the training history they draw from: sampling uniformly from all
+past versions of the opponent (RPO-All), from only the most recent half (RPO-Half), or from the most recent quarter (RPO-Quarter).  It analyzes how this choice affects the quality
+of the learned policy.  This is the design space of the self-play scheme of
+Section~\ref{sec:selfplay}, and that analysis is the
 most directly applicable guidance available for it.
 
 Beyond the ITAndroids line, \textcite{bassani2020} developed an open
 reinforcement-learning framework for \gls{vsss} and demonstrated sim-to-real
 transfer of trained policies, with a resulting team placing competitively at the
 2019 Latin American Robotics Competition.  Closest in spirit
-to this thesis, \textcite{brandao2022} trained a full 3v3 team with multi-agent
-\gls{ppo} and self-play, using a shared policy across the three homogeneous
-robots and a centralized data-collection scheme, and reported a policy capable
-of defeating the strongest available heuristic opponent.
+to this thesis, \textcite{brandao2022} (Deep Learning Brazil and Pequi Mec\^anico, with ITA's LAB-SCA) trained a full 3v3 team with multi-agent
+\gls{ppo} and self-play in MuJoCo, using $200$ environment instances on CPU only and a shared policy across the three homogeneous
+robots, and reported a policy capable
+of defeating the strongest heuristic opponent available to them.
 That work establishes that full-team 3v3 learning is feasible; the present
 work takes that feasibility as its starting point and asks what becomes possible
 once the simulation-throughput and sample-efficiency constraints under which it
@@ -283,9 +274,9 @@ and its successor Isaac Lab run a PhysX-based rigid-body simulator on the \gls{g
 exposing simulation state as tensors consumed by the policy without any \gls{cpu}
 detour, though the stack is tied to Linux and NVIDIA hardware.
 MJX~\cite{zakka2025mujocoplayground}, a just-in-time-compiled reimplementation
-of MuJoCo, brings that contact-rich physics engine into a batched regime.
+of MuJoCo~\cite{todorov2012mujoco}, brings that contact-rich physics engine into a batched regime.
 Brax~\cite{freeman2021brax} implements a differentiable rigid-body engine
-entirely in \gls{jax}.  In the robot soccer context,
+entirely in JAX.  In the robot soccer context,
 \textcite{scaling_marl_2d} built a custom 2D environment whose physics consists
 of simple vectorizable operations and reported throughput one to two orders of
 magnitude higher than MuJoCo-backed alternatives, demonstrating that a
@@ -293,9 +284,8 @@ purpose-built batched environment reduces training time by avoiding the overhead
 of a general engine.
 
 The second approach keeps the full training loop on the same accelerator as the
-simulator.  Libraries such as RLax~\cite{deepmind2020rlax} and
-Stoix~\cite{toledo2024stoix} provide JAX-native RL primitives and compiled
-\gls{ppo} implementations; rsl-rl~\cite{rslrl} serves as the PyTorch companion
+simulator.  Stoix~\cite{toledo2024stoix} provides JAX-native, compiled
+\gls{ppo} implementations, RLax~\cite{deepmind2020rlax} provides JAX building blocks for RL algorithms, and rsl-rl~\cite{rslrl} serves as the PyTorch companion
 to the Isaac stack.
 
 The simulator developed in this work follows this paradigm, applying batched
@@ -312,16 +302,14 @@ intuition to the selection of \emph{which situations to play} rather than which
 past transitions to revisit: it scores environment configurations by an estimate
 of their future learning potential and biases the agent's experience toward the
 configurations expected to be most informative, inducing an implicit curriculum
-without any predefined ordering of difficulty~\cite{prioritized_level_replay}.  The sampler
+without any predefined ordering of difficulty~\cite{prioritized_level_replay}.  The curriculum
 proposed in this work adapts this principle to \gls{vsss}, treating each
-initialized game situation as a level whose priority is derived from the
-policy's recent value-prediction error.
+initialized game situation as a level, with a simpler priority derived from the returns of recent episodes.
 
 The same selection problem also appears in multi-agent self-play.  AlphaStar's
 league training, for example, did not train only against the latest policy; it
 maintained a population of agents so that the learner faced varied opponents and
-did not overfit to a single strategy~\cite{starcraft_marl}.  In this work,
-\gls{plr} addresses the analogous question on the environment side: which game
+did not overfit to a single strategy~\cite{starcraft_marl}.  The curriculum of this work addresses the analogous question on the environment side: which game
 situations should the current policy experience next?
 
 % ------------------------------------------------------------------
@@ -329,23 +317,18 @@ situations should the current policy experience next?
 \label{sec:contributions}
 % ------------------------------------------------------------------
 
-The main TG-1 contribution is a JAX-based, \gls{gpu}-parallel simulator
-for 3v3 \gls{vsss}, built
-around batched physics and accelerator-friendly rollout loops.  The
-simulator is designed to step thousands of independent game instances
-simultaneously on a single device, eliminating the inter-process
-communication overhead present in other existing \gls{vsss} training
-pipelines.
-
-One side TG-1 contribution is a policy-training baseline: a centralized joint policy
-trained from scratch to control a 3v3 \gls{vsss} team using the new
-simulator, with learning curves showing that the infrastructure supports
-reliable policy improvement and characterizing the role of initialization
-strategy in the learning process.  These results motivate the
-\gls{plr} sampler and provide the comparison point for its TG-2 evaluation.
-
-This work also extends the body of literature on applying deep \gls{rl} to
-full-team decision-making and control in the IEEE \gls{vsss} league.
+The contributions of this work are:
+\begin{enumerate}
+  \item \textbf{A JAX simulator for 3v3 \gls{vsss} with accurate contact physics} (Chapter~\ref{chap:sim}).  It steps thousands of games in parallel on one device, models ball spin, skidding and wall pop-ups,
+        detects the earliest ball contact by swept tests, projects coupled contacts in a fixed number of iterations, and shares scoring, referee and restart rules among three environment interfaces.
+        Its correctness is protected by a regression suite of collision failures found in earlier versions.
+  \item \textbf{A fully on-device \gls{ppo} training suite} (Chapter~\ref{chap:sim}), with Brand\~ao-style observations, reward and shared policy, historical self-play, and a compiled generation that
+        contains rollout, advantage estimation and optimization.
+  \item \textbf{An online return-based restart curriculum} (Chapter~\ref{chap:training}) that replays initial situations according to the returns of recent episodes inside the compiled loop, evaluated by ablation
+        against uniform restarts (Chapter~\ref{chap:results}).
+\end{enumerate}
+The curriculum is inspired by \gls{plr} (Section~\ref{sec:curriculum} states how it differs).
+This work also extends the body of literature on applying deep \gls{rl} to full-team decision-making and control in the IEEE \gls{vsss} league.
 
 % ------------------------------------------------------------------
 \section{Outline of this Work}
@@ -353,9 +336,10 @@ full-team decision-making and control in the IEEE \gls{vsss} league.
 
 The remainder of this work is organized as follows:
 \begin{itemize}
-  \item \textbf{Chapter~2} describes the IEEE \gls{vsss} domain, the differential-drive robot model, and the existing simulators used in the community and their limitations for large-scale \gls{rl} training.
-  \item \textbf{Chapter~3} covers the machine-learning background: reinforcement learning fundamentals, \gls{ppo}, curriculum learning, prioritized level replay, multi-agent self-play, symmetry exploitation, and \gls{gpu}-accelerated simulation.
-  \item \textbf{Chapter~4} defines the proposed methodology, including the multi-agent \gls{mdp} formulation, policy architecture, and simulator design.
-  \item \textbf{Chapter~5} reports preliminary TG-1 results, focusing on measured simulator throughput, interface validation and two simple example policy training experiments, as well as some of the discussion regarding the role of planned improvements in TG-2.
-  \item \textbf{Chapter~6} summarizes TG-1 and defines the roadmap toward TG-2.
+  \item \textbf{Chapter~\ref{chap:vsss}} describes the IEEE \gls{vsss} domain, the differential-drive robot model, and the existing simulators used in the community and their limitations for large-scale \gls{rl} training.
+  \item \textbf{Chapter~\ref{chap:theory}} covers the machine-learning background: neural networks, reinforcement learning fundamentals, \gls{ppo}, curriculum learning, prioritized level replay, multi-agent self-play, symmetry, and \gls{gpu}-accelerated simulation.
+  \item \textbf{Chapter~\ref{chap:training}} defines the methodology: the multi-agent \gls{mdp} formulation, policy architecture, symmetries, self-play, the online curriculum, and the evaluation protocol.
+  \item \textbf{Chapter~\ref{chap:sim}} describes the simulator and the training suite: architecture, physics, match rules, validation, throughput, and the compiled \gls{ppo} loop.
+  \item \textbf{Chapter~\ref{chap:results}} reports the experiments: the curriculum ablation, self-play dynamics, and evaluation against fixed opponents.
+  \item \textbf{Chapter~\ref{chap:conclusion}} concludes the work, discusses its limitations, and lists future work.
 \end{itemize}

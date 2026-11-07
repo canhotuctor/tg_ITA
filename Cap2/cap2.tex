@@ -1,17 +1,10 @@
-% ============================================================
-%  THEORETICAL BACKGROUND — IEEE VSSS DOMAIN
-%  Complete text for the three sections.
-%  (The first two sections are lightly revised from your draft;
-%   the third is written from scratch.)
-% ============================================================
-
 This chapter covers the IEEE VSSS domain, the differential-drive robot model, and the existing simulators used in the community, identifying the architectural constraints that motivate the GPU-accelerated approach taken in this work.
 
 % ------------------------------------------------------------------
 \section{The IEEE VSSS Domain}
 % ------------------------------------------------------------------
 
-IEEE Very Small Size Soccer (\gls{vsss}) is a Robot Soccer category in which two teams
+IEEE Very Small Size Soccer (\acrshort{vsss}) is a Robot Soccer category in which two teams
 of small differential-drive robots compete on a flat field.  The robots are
 remotely controlled by a computer set by each team that receives the state of the
 game from a camera set over the field and sends wheel-speed commands by radio~\parencite{robocore_vsss_rules}.  Human
@@ -19,8 +12,8 @@ intervention is not allowed during regular play, so the control system must
 close the loop from perception to decision-making and actuation.
 
 Compared with larger Robot Soccer leagues, \gls{vsss} has relatively simpler
-physics: rigid (no geometry-altering controllable joints) robots, a ball, wall collisions, friction, and no kicking
-mechanism.  This simplicity makes the domain specially attractive for reinforcement
+physics: rigid robots without controllable joints, a ball, wall collisions, friction, and no kicking
+mechanism.  This simplicity makes the domain especially attractive for reinforcement
 learning because it can be simulated at high computational efficiency.
 At the same time, the task is not trivial: a team must conduct the ball by contact, coordinate the motion of multiple robots, avoid blocking itself, defend its goal, and exploit opportunities created by the opponent.
 
@@ -77,13 +70,10 @@ to the hardware interface, while body-velocity actions can simplify learning
 by exposing a more structured control space.
 
 In the VSSS literature, both conventions have been used.
-\cite{tg_thiago} and subsequent ITAndroids works adopt body
-velocities as the policy output, converting them to wheel commands via
-Equation~\eqref{eq:diff_drive} before dispatching to the simulator.
-\cite{tg_thay} instead parameterize actions directly as a tuple of
-left and right wheel speeds, arguing that the end-to-end formulation reduces
-the gap between simulated commands and actual hardware actuation.  In either
-case the robot is treated as a rigid cube that moves according to
+\textcite{tg_thiago} and \textcite{medeiros2020} use a desired position on the field as the action, converted by a
+navigation controller into $(v,\omega)$ and then into wheel commands via
+Equation~\eqref{eq:diff_drive}; the later master's thesis~\cite{master_thiago} and \textcite{tg_thay} parameterize actions directly as the left and right wheel speeds,
+which reduces the gap between simulated commands and actual hardware actuation.  This thesis follows the wheel-speed convention, as in~\cite{brandao2022}.  In every case the robot is treated as a rigid cube that moves according to
 Equation~\eqref{eq:diff_drive}, with friction and wall collisions handled by
 the physics engine.
 
@@ -93,7 +83,7 @@ the physics engine.
 
 Because reinforcement learning algorithms require orders of magnitude more
 interaction steps than classical approaches to converge, it is not practical
-to train directly on physical hardware — doing so would quickly degrade the
+to train directly on physical hardware: doing so would quickly degrade the
 robots' mechanical components and impose severe time constraints on
 experimentation.  Simulation is therefore a necessary prerequisite, and the
 choice of simulator has a direct bearing on how ambitious the training
@@ -102,13 +92,13 @@ methodology can be.
 \subsection{The Conventional Architecture: ODE-Based Simulators}
 
 The most established simulators in the VSSS community share a common
-architectural pattern: a physics engine based on the \gls{ode}. Written in C++,
+architectural pattern: a physics engine based on the \gls{ode}, written in C++,
 that runs as a standalone process and exposes
 its state to external agents through socket messages.  ODE is an open-source
 library for simulating rigid-body dynamics that requires only the geometry and
 inertial parameters of each body as input, rather than manually derived
 equations of motion \cite{smith2001}.  This makes it relatively
-straightforward to replicate the VSSS scenario — a handful of cubic robots, a
+straightforward to replicate the VSSS scenario: a handful of cubic robots, a
 spherical ball, and a bounded rectangular field.
 
 Two simulators of this kind were mainly used in the VSSS analyzed works: the first,
@@ -116,7 +106,7 @@ developed by ITAndroids and used in prior works from the
 group~\parencite{tg_thiago,tg_thay,master_thay}, combines ODE for physics
 with the Object-Oriented Graphics Rendering Engine (OGRE) for visualization.
 It operates at a fixed iteration rate of 60\,Hz and communicates with the
-agent binaries through synchronous TCP socket packages built on the ZeroMQ
+agent binaries through synchronous TCP socket messages built on the ZeroMQ
 library.  To mimic real-world conditions, the simulator can inject additive
 Gaussian noise into the position and orientation estimates it reports, and
 can simulate communication delay by queuing observation packets and releasing
@@ -134,10 +124,9 @@ simulator rendering a penalty situation.
 
 The second, FIRASim~\cite{firasim2019}, was adapted from the RoboCup Small
 Size League simulator grSim and is the reference environment used by many of the Brazilian VSSS simulated competitions.  It also uses ODE for
-physics but is a different implementation, with known behavioral differences:
-it does not enforce velocity limits on robots and omits friction in certain
+physics but is a different implementation.  In our analysis it does not enforce velocity limits on robots and omits friction in certain
 contact configurations.  FIRASim uses asynchronous
-UDP communication rather than TCP, and does not include built-in noise or delay injection.  Figure~\ref{fig:firasim} shows a FIRASim match state.
+UDP communication instead of TCP, and has no built-in noise or delay injection.  Figure~\ref{fig:firasim} shows a FIRASim match state.
 
 \begin{figure}[ht]
     \centering
@@ -154,7 +143,10 @@ then repeats.  This synchronous, round-trip structure means that the simulator a
 processes are tightly coupled in time even though they run independently.
 Gym-compatible wrappers have been built on
 top of both engines to standardize the observation and action spaces and to
-allow interchangeable use with general RL toolkits, following \parencite{bassani2020}.
+allow interchangeable use with general RL toolkits, following \textcite{bassani2020} and rSoccer~\cite{rsoccer}.
+
+Travesim~\cite{travesim}, a Webots-based simulator of the IEEE VSSS category, is a third option and the one used in this work to run the ITAndroids classical strategy
+against the learned policies (Section~\ref{sec:itandroids_eval}).
 
 \subsection{The Throughput Bottleneck}
 \label{sec:throughput_bottleneck}
@@ -173,12 +165,12 @@ the agent processes into a single executable, eliminating the socket round
 trip.  \textcite{master_thay} subsequently reused this adaptation, further
 bridging the C++ simulator with a Python RL stack via gRPC.  While these
 modifications reduced coordination overhead, the underlying single-threaded
-simulation remained inherently sequential: one environment steps at a time,
+simulation remained sequential: one environment steps at a time,
 on CPU.
 
 Table~\ref{tab:legacy_throughput} summarises simulation throughput for two
 representative ITAndroids RL works that trained on the ODE-based engine
-described above.  No prior VSSS work measures simulator throughput directly;
+described above.  The analysed ITAndroids works do not report simulator throughput;
 the values are derived from wall-clock training durations reported in the
 original monographs.
 
@@ -186,12 +178,13 @@ original monographs.
     \centering
     \caption{Simulation throughput in prior ITAndroids RL works on the
     ODE-based engine, derived from reported wall-clock training durations.
-    All figures represent RL control steps per second per simulator instance
+    All figures are RL control steps per second per training agent
     (15\,Hz control rate, 4-frame action repeat over 60\,Hz physics).}
     \label{tab:legacy_throughput}
+    \begin{threeparttable}
     \begin{tabular}{lrr}
         \toprule
-        \textbf{Work} & \textbf{Environments} &
+        \textbf{Work} & \textbf{Simulator instances per agent} &
         \textbf{Steps/s} \\
         \midrule
         \cite{tg_thay} &
@@ -200,37 +193,34 @@ original monographs.
             4 & $378$\tnote{b} \\
         \bottomrule
     \end{tabular}
-
-    \medskip
-    \begin{minipage}{\linewidth}\small
-        \textsuperscript{a}~Derived from Table~6.1 of~\cite{tg_thay}:
+    \begin{tablenotes}\small
+        \item[a] Derived from Table~6.1 of~\cite{tg_thay}:
         subtask \textit{LFG-SG} trained for $5\times10^{6}$ steps in an
         average wall-clock time of 21\,h\,28\,min per agent across 64
         independent runs (one simulator instance per agent).
         $5{\times}10^{6}\,/\,(21.47\times3600)\approx64.7$\,steps/s; the
         three LFG subtasks yield consistent estimates of $62$--$65$\,steps/s,
         rounded here to approximately $63$\,steps/s.
-
-        \medskip
-        \textsuperscript{b}~Derived from Section~6 of~\cite{master_thiago}:
+        \item[b] Derived from Section~6.1 of~\cite{master_thiago}:
         $34\times10^{6}$ timesteps completed in 25\,h of wall-clock time
         (fragmented-CL condition), with 16 agents each driving 4 simulator
         processes in parallel.  Interpreting the 34\,M budget as per-agent
         gives $34{\times}10^{6}\,/\,(25\times3600)\approx378$\,steps/s per
         agent; dividing by the 4 parallel simulator instances per agent
         yields approximately $94$\,steps/s per instance.
-    \end{minipage}
+    \end{tablenotes}
+    \end{threeparttable}
 \end{table}
 
 The consequences become apparent at scale.  \textcite{brandao2022} managed
-to run 200 parallel instances of a MuJoCo-based VSSS simulation for their
+to run 200 parallel instances of a MuJoCo-based~\cite{todorov2012mujoco} VSSS simulation for their
 multi-agent PPO training, a significant improvement, but even so, the
 simulation ran on CPU, with the physics engine unable to exploit the
 parallelism available on modern hardware accelerators.  In the broader robot
 soccer literature, \textcite{scaling_marl_2d} demonstrated that a purpose-built
 2D environment whose physics is expressed as simple, vectorizable operations
 could achieve throughput one to two orders of magnitude higher than
-MuJoCo-backed alternatives for the same number of players, precisely because
+MuJoCo-backed alternatives for the same number of players, because
 it allowed the simulation loop to bypass the CPU bottleneck.
 
 \subsection{Implications for This Work}
@@ -238,10 +228,9 @@ it allowed the simulation loop to bypass the CPU bottleneck.
 The gap between what existing VSSS simulators can provide and what an
 ambitious multi-agent training regime requires is the central motivation for
 the simulator developed in this thesis.  Training a 3v3 cooperative policy
-from scratch with PPO, a two-stage curriculum, and self-play requires tens or
+from scratch with PPO, a curriculum, and self-play requires tens or
 hundreds of millions of environment steps to converge; the ITAndroids prior
-works were constrained to much smaller timestep budgets partly because of this
-constraint.
+works were constrained to much smaller timestep budgets partly for this reason.
 
 The simulator proposed here takes a different approach.  Rather than wrapping
 a C++ physics engine and mediating access through sockets, it expresses the
@@ -249,10 +238,11 @@ entire VSSS physics (rigid-body kinematics, collision detection, and ball
 dynamics) as batched array operations that can be compiled and executed
 on a \gls{gpu}.  This design makes it possible to step thousands of
 independent game instances simultaneously within a single device call,
-eliminating inter-process communication and \gls{cpu}-\gls{gpu} data transfers from the
-critical path.  The physics model is deliberately simpler than a full \gls{ode}
-simulation: it captures basic elements of 2D Physics simulation
-(differential-drive kinematics, ball-robot contact, wall collisions, and
-friction) while sacrificing some details in a first moment to achieve better throughput.
+removing inter-process communication and \gls{cpu}-\gls{gpu} data transfers from the
+critical path.  The physics model is simpler than a full \gls{ode}
+simulation: it keeps the elements of 2D physics that matter for ball control
+(differential-drive kinematics, ball spin and skidding, and swept ball--robot and ball--wall contacts, Chapter~\ref{chap:sim})
+while leaving out three-dimensional rigid-body detail.
 
-This simplification is a deliberate tradeoff: a simpler model is faster to run in large batches, but it does not automatically capture every physical element that may be relevant to learning good soccer behavior.  Whether the retained elements are sufficient is ultimately an empirical question, left to the training and evaluation results.
+The higher throughput has two sources: the simpler physics model, which is cheaper per step than \gls{ode} by itself, and the accelerator, which runs
+thousands of those steps at once.  The simplification is a tradeoff, since a simpler model does not capture every physical element that may matter for learning good soccer behavior.  Whether the retained elements are sufficient is left to the training and evaluation results.

@@ -1,0 +1,64 @@
+% Overlap measures (jax_backend.py: _ball_obb_penetration, _sat_square_overlap,
+% _robot_wall_collisions, _robot_chamfer_collisions)
+\begin{figure}[htbp]
+    \centering
+    \subfloat[Ball--robot, robot frame.]{%
+    \begin{tikzpicture}[scale=1]
+        \def\h{1.2}\def\r{0.85}
+        \draw[robotbody] (-\h,-\h) rectangle (\h,\h);
+        \draw[ballbody, fill opacity=0.6] (1.9,0.2) circle (\r);
+        \draw[ballbody, fill opacity=0.6] (1.75,-1.75) circle (\r);
+        \foreach \px/\py/\qx/\qy in {1.9/0.2/1.2/0.2, 1.75/-1.75/1.2/-1.2}{
+            \fill (\px,\py) circle (1.3pt);
+            \fill[red!70!black] (\qx,\qy) circle (1.6pt);
+            \draw[nimp] (\qx,\qy) -- ($(\qx,\qy)!1.6!(\px,\py)$);
+        }
+        \node[red!70!black, font=\small, left] at (1.2,0.35) {$\mathbf q$};
+        \node[font=\scriptsize, align=center] at (0,-2.95)
+            {$\mathbf q=\mathrm{clip}(\mathbf p,-h,h)$, \;
+             $\delta=r-\lVert\mathbf p-\mathbf q\rVert$};
+    \end{tikzpicture}}%
+    \hfill
+    \subfloat[Robot--robot, separating axes.]{%
+    \begin{tikzpicture}[scale=1]
+        \draw[robotbody] (-1,-1) rectangle (1,1);
+        \node at (0,0) {$A$};
+        \begin{scope}[shift={(2.03,0.4)}, rotate=30]
+            \draw[robotbody, fill=yellow!20, draw=yellow!50!black] (-1,-1) rectangle (1,1);
+            \node[rotate=-30] at (0,0) {$B$};
+        \end{scope}
+        \def\yl{-1.9}
+        \draw[->, black!60] (-1.5,\yl) -- (4.0,\yl) node[right, font=\small] {$\hat{\mathbf x}_A$};
+        \draw[blue!55!black, line width=2.5pt] (-1,\yl+0.12) -- (1,\yl+0.12);
+        \draw[yellow!50!black, line width=2.5pt] (0.664,\yl-0.12) -- (3.396,\yl-0.12);
+        \fill[red!60, opacity=0.5] (0.664,\yl-0.3) rectangle (1,\yl+0.3);
+        \foreach \x/\y in {-1/-1, 1/-1}{\draw[densely dotted, black!50] (\x,\y) -- (\x,\yl);}
+        \draw[densely dotted, black!50] (0.664,0.034) -- (0.664,\yl);
+        \draw[densely dotted, black!50] (3.396,0.766) -- (3.396,\yl);
+        \node[font=\scriptsize, align=center] at (1.2,-2.85)
+            {4 axes; minimum overlap gives $\hat{\mathbf n}$ and depth};
+    \end{tikzpicture}}%
+    \hfill
+    \subfloat[Robot--wall.]{%
+    \begin{tikzpicture}[scale=1]
+        \fill[wall] (1.366,-1.9) rectangle (1.666,1.9);
+        \draw[thick] (1.366,-1.9) -- (1.366,1.9);
+        \begin{scope}[rotate=30]
+            \draw[robotbody] (-1,-1) rectangle (1,1);
+            \draw[vel] (0,0) -- (1.3,0) node[above, font=\scriptsize] {$\theta$};
+        \end{scope}
+        \fill (0,0) circle (1.3pt);
+        \draw[{Stealth[length=1.6mm]}-{Stealth[length=1.6mm]}] (0,-1.6) -- (1.366,-1.6);
+        \draw[aux] (0,0) -- (0,-1.7);
+        \node[font=\small, below] at (0.68,-1.6) {$e$};
+        \node[font=\scriptsize, align=center] at (0.2,-2.95)
+            {$e=h(\lvert\cos\theta\rvert+\lvert\sin\theta\rvert)$};
+    \end{tikzpicture}}
+    \caption{Overlap measures used by the discrete impulses and the projection.
+    (a)~The ball centre $\mathbf p$ is clamped to the robot's square to find the closest
+    point $\mathbf q$, which gives the normal for face and corner contacts alike.
+    (b)~Two squares overlap only if their projections overlap on all four face normals;
+    the axis of least overlap is the separation direction.  (c)~A robot is kept
+    inside a wall by clamping its centre at a distance of at least its support $s$.}
+    \label{fig:contact_geometry}
+\end{figure}

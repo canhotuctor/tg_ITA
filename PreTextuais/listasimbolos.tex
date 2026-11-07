@@ -30,10 +30,6 @@
 
 \newglossaryentry{slew_limit}{name=\ensuremath{a_{\mathrm{slew}}}, description={Wheel angular acceleration limit (slew rate)}, sort={a_slew}}
 
-\newglossaryentry{shaping_coef}{name=\ensuremath{\beta}, description={Forward ball progress shaping coefficient}, sort={beta}}
-
-\newglossaryentry{crowd_penalty_coeff}{name=\ensuremath{\lambda_c}, description={Foul Play penalty coefficient}, sort={lambda_c}}
-
 \newglossaryentry{pos_x}{name=\ensuremath{x}, description={Position x-coordinate (field frame)}, sort={x}}
 
 \newglossaryentry{pos_y}{name=\ensuremath{y}, description={Position y-coordinate (field frame)}, sort={y}}
@@ -44,6 +40,18 @@
 
 \newglossaryentry{heading}{name=\ensuremath{\theta}, description={Robot heading angle}, sort={theta}}
 
-\newglossaryentry{friction_coef}{name=\ensuremath{\mu_r}, description={Ball rolling friction coefficient}, sort={mu_r}}
+\newglossaryentry{foul_penalty_coeff}{name=\ensuremath{\gamma_{\mathrm{foul}}}, description={Foul Play penalty coefficient}, sort={gamma_foul}}
 
-\newglossaryentry{foul_penalty_coeff}{name=\ensuremath{\gamma_{\mathrm{foul}}}, description={Foul Play penalty coefficient}, sort={gamma_crowd}}
+\newglossaryentry{gae_lambda}{name=\ensuremath{\lambda}, description={GAE bias--variance parameter}, sort={lambda}}
+
+\newglossaryentry{clip_eps}{name=\ensuremath{\epsilon}, description={PPO clipping range}, sort={epsilon}}
+
+\newglossaryentry{replay_fraction}{name=\ensuremath{\rho}, description={Curriculum replay probability}, sort={rho}}
+
+\newglossaryentry{buffer_size}{name=\ensuremath{K}, description={Capacity of the curriculum level buffer}, sort={K}}
+
+\newglossaryentry{num_envs}{name=\ensuremath{N}, description={Number of parallel environments}, sort={N}}
+
+\newglossaryentry{rollout_len}{name=\ensuremath{T}, description={Rollout length per generation (decision steps)}, sort={T}}
+
+\newglossaryentry{horizon}{name=\ensuremath{H}, description={Episode horizon (decision steps)}, sort={H}}

@@ -1,0 +1,54 @@
+% Swept tests (swept_collisions.py: _cast_segments, advance_ball / ROBOT_SWEEP_INTERVALS)
+\begin{figure}[htbp]
+    \centering
+    \subfloat[Cast against a capsule.]{%
+    \begin{tikzpicture}[scale=0.85]
+        \def\r{0.8}
+        \fill[black!7] (0,\r) -- (5,\r) arc[start angle=90, end angle=-90, radius=\r]
+            -- (0,-\r) arc[start angle=270, end angle=90, radius=\r] -- cycle;
+        \draw[aux] (0,\r) -- (5,\r) arc[start angle=90, end angle=-90, radius=\r]
+            -- (0,-\r) arc[start angle=270, end angle=90, radius=\r] -- cycle;
+        \draw[line width=1.6pt] (0,0) node[below left] {$\mathbf a$} -- (5,0) node[below right] {$\mathbf b$};
+        \draw[vel] (3.6,0) -- (3.6,0.6) node[right, font=\small] {$\hat{\mathbf n}$};
+        % face case
+        \draw[aux] (1.2,2.6) -- (2.04,0.8);
+        \draw[vel] (1.2,2.6) node[above] {$\mathbf p_0$} -- (1.6,1.74);
+        \draw[ballbody, fill opacity=0.6] (2.04,0.8) circle (\r);
+        \fill (2.04,0.8) circle (1.3pt) node[shift={(1.35,0.55)}, font=\small] {$t_{\mathrm{face}}$};
+        % vertex case
+        \draw[aux] (7.0,2.4) -- (5.514,0.613);
+        \draw[vel] (7.0,2.4) node[above] {$\mathbf p_0'$} -- (6.4,1.68);
+        \draw[ballbody, fill opacity=0.6] (5.514,0.613) circle (\r);
+        \fill (5.514,0.613) circle (1.3pt) node[shift={(1.35,-0.35)}, font=\small] {$t_{\mathrm{vertex}}$};
+        \draw[thin] (5,0) -- (5.514,0.613);
+        \node[font=\scriptsize, align=center] at (2.5,-1.4)
+            {face: $\hat{\mathbf n}\cdot(\mathbf p(t)-\mathbf a)=r$, \quad
+             vertex: $\lVert\mathbf p(t)-\mathbf b\rVert=r$};
+    \end{tikzpicture}}%
+    \hfill
+    \subfloat[Spinning robot, robot frame.]{%
+    \begin{tikzpicture}[scale=0.36]
+        \def\h{3.75}\def\r{2.135}\def\d{6.8}
+        \fill[black!7] (-\h,-\h-\r) -- (\h,-\h-\r) arc[start angle=-90,end angle=0,radius=\r]
+            -- (\h+\r,\h) arc[start angle=0,end angle=90,radius=\r]
+            -- (-\h,\h+\r) arc[start angle=90,end angle=180,radius=\r]
+            -- (-\h-\r,-\h) arc[start angle=180,end angle=270,radius=\r] -- cycle;
+        \draw[robotbody] (-\h,-\h) rectangle (\h,\h);
+        \draw[vel] (0,0) -- (2,0) node[below, font=\scriptsize] {$x_R$};
+        \draw[vel] (0,0) -- (0,2) node[left, font=\scriptsize] {$y_R$};
+        \draw[aux] (80:\d) arc[start angle=80, end angle=10, radius=\d];
+        \draw[thick] (80:\d) -- (45:\d) -- (10:\d);
+        \foreach \a/\l in {80/{t=0}, 45/{t=\frac12}, 10/{t=1}}
+            \fill (\a:\d) circle (4pt) node[shift={(\a:0.9)}, font=\scriptsize] {$\l$};
+        \draw[ballbody, fill opacity=0.6] (2.745,5.885) circle (\r);
+        \fill (2.745,5.885) circle (4pt);
+        \draw[vel] (-5.3,-5.3) arc[start angle=225, end angle=260, radius=7.5];
+        \node[font=\small] at (-5.6,-6.3) {$-\omega$};
+    \end{tikzpicture}}
+    \caption{Continuous collision tests.  (a)~A segment expanded by the ball radius $r$
+    is a capsule; the ball centre $\mathbf p(t)=\mathbf p_0+t\mathbf d$ is cast against its
+    faces (linear) and end vertices (quadratic), and the earliest approaching root wins.
+    (b)~A ball at rest seen from a spinning robot moves on an arc; the cast replaces the
+    arc by two chords, here hitting the robot's top face.  The robot's square expanded by $r$ is shaded.}
+    \label{fig:sweep}
+\end{figure}

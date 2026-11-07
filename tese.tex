@@ -81,7 +81,15 @@
 \usepackage[table]{xcolor}
 %PACOTETABELAS_SE _ERRADO_ESXCLUIR_ACIMA
 \usepackage{tikz}
-\usetikzlibrary{arrows.meta,shapes,positioning}
+\usetikzlibrary{arrows.meta,shapes,positioning,calc,patterns}
+\tikzset{% styles shared by the physics figures of Chapter 3
+    wall/.style={pattern=north east lines, pattern color=black!45},
+    ballbody/.style={draw=orange!70!black, fill=orange!25, thick},
+    robotbody/.style={draw=blue!55!black, fill=blue!10, thick},
+    vel/.style={-{Stealth[length=2mm]}, thick},
+    nimp/.style={-{Stealth[length=2mm]}, very thick, red!70!black},
+    fimp/.style={-{Stealth[length=2mm]}, very thick, teal!60!black},
+    aux/.style={densely dashed, black!50}}
 \usepackage{tkz-euclide}
 %HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH
 
@@ -107,10 +115,7 @@
 \itaauthoraddress{Rua H8B, Ap. 241}{12.228-461}{São José dos Campos--SP}
 
 % Titulo da Tese/Dissertação
-\title{
-% \color{red}
-A Vectorized Reinforcement Learning Framework for IEEE Very Small Size Soccer
-}
+\title{Scalable Reinforcement Learning with Online Curriculum for IEEE VSSS}
 
 
 % Orientador
@@ -144,7 +149,7 @@ A Vectorized Reinforcement Learning Framework for IEEE Very Small Size Soccer
 % \examiner{Prof. Dr.}{Examiner Name}{}{Institution}
 
 % Data da defesa (mês em maiúsculo, se trabalho em inglês, e minúsculo se trabalho em português)
-\date{29}{May}{2026}
+\date{11}{November}{2026}
 
 % Número CDU - (somente para TG)
 \color{red}
@@ -158,32 +163,45 @@ A Vectorized Reinforcement Learning Framework for IEEE Very Small Size Soccer
 \input{PreTextuais/listaabreviaturas.tex}
 \input{PreTextuais/listasimbolos.tex}
 
+\setcounter{secnumdepth}{2}
+\setcounter{tocdepth}{2}
+
 \begin{document}
 \input{PreTextuais/main}
 
 \mainmatter
 % Os capitulos comecam aqui
 
-\chapter*{Disclaimer: Use of AI Tools}
-\input{ApeA/apendiceA}
-
 \chapter{Introduction}
+\label{chap:intro}
 \input{Cap1/cap1}
 
-\chapter{IEEE Very Small Size Soccer}
+\chapter{IEEE VSSS Domain and Existing Simulators}
+\label{chap:vsss}
 \input{Cap2/cap2}
 
-\chapter{Machine Learning}
+\chapter{Theoretical Background}
+\label{chap:theory}
 \input{Cap3/cap3}
 
 \chapter{Methodology}
+\label{chap:training}
 \input{Cap4/cap4}
 
-\chapter{Results}
+\chapter{Simulator and Training Suite}
+\label{chap:sim}
 \input{Cap5/cap5}
 
-\chapter{Conclusion}
+\chapter{Results}
+\label{chap:results}
 \input{Cap6/cap6}
+
+\chapter{Conclusion}
+\label{chap:conclusion}
+\input{Cap7/cap7}
+
+\chapter*{Disclaimer: Use of AI Tools}
+\input{ApeA/apendiceA}
 
 % REFERENCIAS BIBLIOGRAFICAS
 \renewcommand\bibname{\itareferencesnamebabel} %renomear título do capítulo referências
@@ -204,7 +222,7 @@ A Vectorized Reinforcement Learning Framework for IEEE Very Small Size Soccer
 
 % Folha de Registro do Documento
 % Valores dos campos do formulario
-\FRDitadata{29 May 2026}
+\FRDitadata{11 November 2026}
 \FRDitadocnro{DCTA/ITA/DM-018/2026} %(o número de registro você solicita a biblioteca)
 \FRDitaorgaointerno{Instituto Tecnológico de Aeronáutica -- ITA}
 %Exemplo no caso de pós-graduação: Instituto Tecnol{\'o}gico de Aeron{\'a}utica -- ITA

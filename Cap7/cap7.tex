@@ -1,0 +1,36 @@
+% ============================================================
+%  CHAPTER 7 -- CONCLUSION
+%  Claims below must be revised once the Chapter 6 numbers exist; TODO(results) marks each dependency.
+% ============================================================
+
+\section{Summary of Contributions}
+\label{sec:conclusion}
+
+This work built a JAX simulator for 3v3 IEEE VSSS with accurate contact physics, a fully on-device PPO training suite around it, and an online return-based curriculum over initial situations.
+\begin{itemize}
+  \item \textbf{Simulator.}  The simulator steps thousands of matches in parallel on one device and shares scoring, referee and restart rules among its three environment interfaces.  Its contact pipeline (swept ball casts, impulses, and a
+        fixed number of projection iterations) is protected by a regression suite of the collision failures found in earlier versions.  \textbf{TODO(results)}: throughput and stress-benchmark figures, with the caveat of Section~\ref{sec:sim_throughput}: part of the gain over the earlier ODE pipelines comes from the simpler physics.
+  \item \textbf{Training suite.}  Rollout, advantage estimation and optimization form one compiled program, which made the ablation of the next item affordable.
+  \item \textbf{Behaviour.}  The main evidence of what training produces is qualitative: increasingly complex behaviours appear across generations, from shooting to blocking, positioning for second balls and role differentiation despite shared weights (Section~\ref{sec:behaviour}).  The quantitative evaluation against fixed opponents supports this reading but resolves it coarsely, and the result against the ITAndroids classical strategy may be modest.
+  \item \textbf{Curriculum.}  \textbf{TODO(results)}: state whether replaying initial situations by the return-based score improved the final policies over uniform restarts, with the effect size and interval; a null result is reported as such.
+\end{itemize}
+
+\paragraph{Evaluation against the ITAndroids classical strategy.}
+It was not possible to run all the evaluations against the ITAndroids classical strategy.  That code base runs as separate processes that play through Travesim and a proxy referee, and it cannot be parallelized as easily as the JAX opponents.
+Only the last trained policy of each lineage (each curriculum condition) was therefore evaluated against it, and not the intermediate snapshots, so no learning curve against this opponent is available.  The result also mixes two effects, the strength of the learned policy and the transfer from the JAX simulator to Travesim.
+
+\section{Limitations}
+\label{sec:limitations}
+
+The fidelity of the simulator to real robots is untested: there is no sensing delay, latency or calibration, so no claim about transfer to hardware is made.  The curriculum score is a heuristic; its buffer has no memory across generations and no staleness handling.
+The shared-weights policy limits role specialization, and all runs use mirror augmentation, so its effect is not isolated.  The number of seeds is small, so effect sizes are reported with intervals and not as significance claims.
+
+\section{Future Work}
+\label{sec:future_work}
+
+\begin{itemize}
+  \item \textbf{Sim-to-real:} latency and noise randomization, and calibration of the ball and drive coefficients against real data.
+  \item \textbf{Curriculum:} a persistent buffer with staleness (full \gls{plr}) and value-error scoring, to compare with the return-based score.
+  \item \textbf{Evaluation:} tighter Travesim integration, for instance headless instances in parallel with a scripted referee that logs the score, or a JAX port of the classical strategy, so that evaluation against it scales like the rest.
+  \item \textbf{Policies:} role-specialized policies, ablating the mirror augmentation, and the dynamic drive model.
+\end{itemize}

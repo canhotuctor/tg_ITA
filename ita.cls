@@ -238,12 +238,12 @@
     % citetracker=true,
     ]{biblatex}
 
-\DefineBibliographyStrings{english}{%
+\AtBeginDocument{\DefineBibliographyStrings{english}{%
 	urlseen     = {accessed on},%
 	urlfrom     = {available at},%
 	editor      = {ed.},%
 	editors     = {ed.},%
-}
+}}
 
 %% use these if the biblatex-abnt is not updated 
 %

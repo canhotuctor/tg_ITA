@@ -1,0 +1,49 @@
+% Ball-face impulse (jax_backend.py: _ball_face_impulse; swept_collisions.advance_ball)
+\begin{figure}[htbp]
+    \centering
+    \subfloat[Glancing hit, top view.]{%
+    \begin{tikzpicture}[scale=1]
+        \def\r{0.8}
+        \fill[wall] (-2.4,0) rectangle (2.8,0.3);
+        \draw[thick] (-2.4,0) -- (2.8,0);
+        \draw[aux] (-2.1,-2.9) -- (0,-\r);
+        \draw[ballbody] (0,-\r) circle (\r);
+        \fill (0,-\r) circle (1.2pt);
+        \draw[vel] (-2.1,-2.9) -- (-1.3,-2.1) node[left] {$\mathbf v^-$};
+        \draw[vel] (0,-\r) -- ++(1.37,-1.44) node[right] {$\mathbf v^+$};
+        \draw[vel] ([shift={(0,-\r)}]200:0.45) arc[start angle=200, end angle=320, radius=0.45];
+        \node[below] at ([shift={(0,-\r)}]260:0.45) {$\omega_z$};
+        \draw[nimp] (0,0) -- (0,-0.7);
+        \node[red!70!black, right, font=\small] at (0.05,-0.3) {$J_n\hat{\mathbf n}$};
+        \draw[fimp] (0,-0.1) -- (-1.1,-0.1);
+        \node[teal!60!black, below, font=\small] at (-1.2,-0.15) {$-p\,\hat{\mathbf u}$};
+        \fill (0,0) circle (1.5pt);
+    \end{tikzpicture}}%
+    \hspace{1cm}
+    \subfloat[Rolling ball meets a wall, side view.]{%
+    \begin{tikzpicture}[scale=1]
+        \def\r{1.0}
+        \fill[wall] (-3.4,-0.3) rectangle (0.3,0);
+        \fill[wall] (0,0) rectangle (0.3,2.9);
+        \draw[thick] (-3.4,0) -- (0,0) -- (0,2.9);
+        \draw[ballbody] (-\r,\r) circle (\r);
+        \fill (-\r,\r) circle (1.2pt);
+        \draw[vel] (-2.4,2.4) -- (-1.4,2.4) node[above] {$\mathbf v$};
+        \draw[vel] ([shift={(-\r,\r)}]150:0.55) arc[start angle=150, end angle=30, radius=0.55];
+        \node[above] at ([shift={(-\r,\r)}]90:0.55) {$\omega_y$};
+        \draw[nimp] (0,\r) -- (-0.75,\r);
+        \node[red!70!black, below, font=\small] at (-0.5,0.95) {$J_n\hat{\mathbf n}$};
+        \draw[fimp] (-0.07,\r) -- (-0.07,1.85);
+        \node[teal!60!black, left, font=\small] at (-0.07,1.75) {$p\,\hat{\mathbf z}$};
+        \draw[vel, densely dashed] (0.55,\r) -- (0.55,0.35) node[right] {\small slip $-r\omega_y\hat{\mathbf z}$};
+        \fill (0,\r) circle (1.5pt);
+        \draw[aux, ->] (-1.2,2.0) .. controls (-1.7,3.0) and (-2.5,3.0) .. (-3.0,2.0);
+        \node[font=\small] at (-2.6,3.05) {$v_z>0$};
+    \end{tikzpicture}}
+    \caption{Impulse of a vertical face on the ball.  (a)~The normal impulse reverses
+    the approach with restitution $e$; friction removes tangential slip and converts
+    it into spin about the vertical.  (b)~On a rolling ball the wall's contact point
+    slides downwards, so friction pushes the ball up: a small pop-up that a
+    spin-free (skidding) ball does not show.}
+    \label{fig:face_impulse}
+\end{figure}
